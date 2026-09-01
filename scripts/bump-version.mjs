@@ -172,15 +172,17 @@ try {
   exitError(`Failed to read or parse ${lockPath}: ${err.message}`)
 }
 
-if (lock.version === newVersion && (!lock.packages || !lock.packages[''] || lock.packages[''].version === newVersion)) {
-  log(`>> ${lockPath} already at ${newVersion} — skipping`, YELLOW)
+const rootPkg = lock.packages && lock.packages['']
+// Defensive idempotency check — normally the CHANGELOG guard exits first.
+if (lock.version === newVersion && (!rootPkg || rootPkg.version === newVersion)) {
+  log(`⚠ package-lock.json already at ${newVersion} — skipping`, YELLOW)
 } else {
   lock.version = newVersion
-  if (lock.packages && lock.packages['']) {
-    lock.packages[''].version = newVersion
+  if (rootPkg) {
+    rootPkg.version = newVersion
   }
   writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`)
-  log(`>> ${lockPath} → ${newVersion}`, GREEN)
+  log('✓ Updated package-lock.json', GREEN)
 }
 
 // --- Git operations ---
