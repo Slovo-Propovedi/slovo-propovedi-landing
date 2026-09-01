@@ -121,7 +121,8 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   `slovo-landing-refresh-shots.timer` (same cadence). It polls the mobile repo
   git tree, verifies each PNG, and atomically publishes the gallery +
   `manifest.json`. If the served fingerprint already matches the remote tree it
-  exits 0 early with zero writes.
+  exits 0 early without re-downloading or rewriting anything (stale files are
+  still pruned, so the gallery self-heals).
 - The screenshots bind mount (`/slovo/landing/screenshots` →
   `/usr/share/nginx/html/screenshots`, read-only) is added to the container
   unit by `vps-deploy.sh`, next to the `/apk` mount.

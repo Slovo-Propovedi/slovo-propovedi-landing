@@ -117,7 +117,7 @@ async function loadRelease() {
 }
 
 /* --- Parse the screenshots manifest into trusted fields --- */
-const SCREENSHOT_FILE_RE = /^[A-Za-z0-9._-]+\.png$/
+const SCREENSHOT_FILE_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*\.png$/
 const SHA40_RE = /^[0-9a-f]{40}$/i
 
 function parseScreenshotsManifest(data) {
@@ -188,6 +188,8 @@ function renderScreenshots(images) {
     img.alt = screenshotAlt(entry.file)
     img.loading = 'lazy'
     img.decoding = 'async'
+    // Intrinsic size matches the mobile repo's canonical screenshot resolution
+    // (assets/screenshots/*.png, 1080×2340) — update both if that ever changes.
     img.width = 1080
     img.height = 2340
     // Fade the frame in once the image is ready (reduced-motion handled in CSS)
@@ -208,10 +210,18 @@ async function loadScreenshots() {
     const response = await fetch('/screenshots/manifest.json', { cache: 'no-store' })
     if (!response.ok) throw new Error(`manifest.json: HTTP ${response.status}`)
     renderScreenshots(parseScreenshotsManifest(await response.json()))
+    // Gallery rendered — reveal the section and its nav link.
+    const section = $('screenshots')
+    const nav = $('nav-screenshots')
+    if (section) section.hidden = false
+    if (nav) nav.hidden = false
   } catch (error) {
-    // Hide the gallery gracefully; the section link and credit stay visible.
-    const list = $('screenshots-list')
-    if (list) list.hidden = true
+    // Fail-closed: hide the whole section and its nav link so there is no empty
+    // gallery or dead anchor when the manifest cannot be fetched.
+    const section = $('screenshots')
+    const nav = $('nav-screenshots')
+    if (section) section.hidden = true
+    if (nav) nav.hidden = true
     console.warn(error)
   }
 }

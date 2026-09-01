@@ -157,7 +157,7 @@ fetch_tree() {
     .tree[]
     | select(.type == "blob")
     | select(.path | startswith("assets/screenshots/"))
-    | select(.path | test("^assets/screenshots/[A-Za-z0-9._-]+\\.png$") | not)
+    | select(.path | test("^assets/screenshots/[A-Za-z0-9_][A-Za-z0-9._-]*\\.png$") | not)
     | .path
   ' "$json_file")"
   if [ -n "$unexpected" ]; then
@@ -170,7 +170,7 @@ fetch_tree() {
   jq -r '
     .tree[]
     | select(.type == "blob")
-    | select(.path | test("^assets/screenshots/[A-Za-z0-9._-]+\\.png$"))
+    | select(.path | test("^assets/screenshots/[A-Za-z0-9_][A-Za-z0-9._-]*\\.png$"))
     | [.path, .sha] | join(":")
   ' "$json_file" | sort > "$list_file"
   rm -f "$json_file"

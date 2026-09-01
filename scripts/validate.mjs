@@ -56,7 +56,7 @@ if (!existsSync('index.html')) {
 
   if (!/<html[^>]*\blang="ru"/.test(html)) bad('index.html: missing lang="ru"')
 
-  for (const id of ['download-btn', 'meta-version', 'meta-size', 'meta-date', 'meta-sha256', 'sha-copy']) {
+  for (const id of ['download-btn', 'meta-version', 'meta-size', 'meta-date', 'meta-sha256', 'sha-copy', 'screenshots-list']) {
     if (!new RegExp(`id="${id}"`).test(html)) bad(`index.html: missing id="${id}"`)
   }
 
@@ -179,6 +179,13 @@ if (!existsSync('nginx.conf')) {
   // Screenshots manifest location must exist and be served fresh (no-cache).
   if (!/location = \/screenshots\/manifest\.json \{[\s\S]*?Cache-Control "no-cache"/.test(nginx)) {
     bad('nginx.conf: screenshots manifest location missing no-cache')
+  }
+
+  // Screenshots image location must cache immutably (filenames embed the blob
+  // sha, so a changed image is a new URL and old ones can be cached forever).
+  const shotsImageLoc = locations.find((loc) => loc.selector.startsWith('~* ^/screenshots/'))
+  if (!shotsImageLoc || !shotsImageLoc.body.includes('Cache-Control "public, max-age=31536000, immutable"')) {
+    bad('nginx.conf: screenshots image location missing immutable Cache-Control')
   }
 }
 
