@@ -78,8 +78,9 @@ npm run generate-og              # пересоздать assets/img/og.png (н�
    ```bash
    npm run bump-version <version|patch|minor|major>
    ```
-   Скрипт обновляет `package.json`, `CHANGELOG.md` и `?v=` cache-busting в
-   `index.html`, коммитит с DCO signoff и создаёт тег `vX.Y.Z`.
+   Скрипт обновляет `package.json`, `CHANGELOG.md`, `package-lock.json` и
+   `?v=` cache-busting в `index.html` (включая `theme-init.js`), коммитит с
+   DCO signoff и создаёт тег `vX.Y.Z`.
 
 2. **Пush:**
    ```bash
@@ -120,3 +121,12 @@ npm run generate-og              # пересоздать assets/img/og.png (н�
 
 Приложение распространяется под лицензией **GPL-3.0-or-later** — см.
 [репозиторий мобильного приложения](https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-mobile).
+
+## Атрибуция
+
+- **Иконка приложения** (`assets/img/favicon.svg`, логотип в шапке) — ручная
+  трассировка силуэта открытой книги из иконки приложения «Слово.Проповеди».
+  Это производная работа иконки приложения и распространяется под
+  **GPL-3.0-or-later** (та же лицензия, что и у ассетов приложения).
+- **Иконки интерфейса** — Ionicons v5 (<https://ionicons.com>), © Ionic — MIT
+  (<https://github.com/ionic-team/ionicons/blob/main/LICENSE>).

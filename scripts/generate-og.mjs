@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // Generates assets/img/og.png (1200x630) for social sharing cards.
-// Builds an SVG on-brand with the landing page (ink-navy + manuscript gold,
-// Unbounded wordmark, Onest tagline) and rasterizes it.
+// Builds an SVG on-brand with the landing page (black card, brand orange
+// #f16031 accent, white Unbounded wordmark, Onest tagline) and rasterizes it.
 //
 // Rasterizer preference:
 //   1. rsvg-convert (librsvg) — best text/font support via pango+fontconfig
@@ -25,52 +25,52 @@ const OUT = join(ROOT, 'assets', 'img', 'og.png')
 const WIDTH = 1200
 const HEIGHT = 630
 
-// --- Build the SVG (on-brand: ink-navy mesh + gold wordmark + QR motif) ---
+// --- Build the SVG (on-brand: black card + orange accent + white wordmark) ---
 const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <defs>
-    <radialGradient id="goldGlow" cx="88%" cy="-12%" r="85%">
-      <stop offset="0%" stop-color="#e8b45a" stop-opacity="0.38"/>
-      <stop offset="55%" stop-color="#e8b45a" stop-opacity="0.10"/>
-      <stop offset="100%" stop-color="#e8b45a" stop-opacity="0"/>
+    <radialGradient id="orangeGlow" cx="88%" cy="-12%" r="85%">
+      <stop offset="0%" stop-color="#f16031" stop-opacity="0.42"/>
+      <stop offset="55%" stop-color="#f16031" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#f16031" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="blueGlow" cx="-8%" cy="92%" r="75%">
-      <stop offset="0%" stop-color="#40548c" stop-opacity="0.55"/>
-      <stop offset="55%" stop-color="#40548c" stop-opacity="0.16"/>
-      <stop offset="100%" stop-color="#40548c" stop-opacity="0"/>
+    <radialGradient id="deepGlow" cx="-8%" cy="92%" r="75%">
+      <stop offset="0%" stop-color="#d1542a" stop-opacity="0.5"/>
+      <stop offset="55%" stop-color="#d1542a" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#d1542a" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="goldRule" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#f0c87e"/>
-      <stop offset="100%" stop-color="#d99a3d"/>
+    <linearGradient id="orangeRule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff8a3d"/>
+      <stop offset="100%" stop-color="#f16031"/>
     </linearGradient>
   </defs>
 
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="#1a1f2e"/>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#goldGlow)"/>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#blueGlow)"/>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="#000"/>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#orangeGlow)"/>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#deepGlow)"/>
 
-  <!-- gold rule under the wordmark -->
-  <rect x="80" y="352" width="420" height="6" rx="3" fill="url(#goldRule)"/>
+  <!-- orange rule under the wordmark -->
+  <rect x="80" y="352" width="420" height="6" rx="3" fill="url(#orangeRule)"/>
 
   <!-- wordmark -->
-  <text x="80" y="300" font-family="Unbounded" font-weight="700" font-size="82" fill="#f6ecd4">Слово.Проповеди</text>
+  <text x="80" y="300" font-family="Unbounded" font-weight="700" font-size="82" fill="#ffffff">Слово.Проповеди</text>
 
   <!-- tagline -->
-  <text x="80" y="410" font-family="Onest" font-size="34" fill="#c9c2ae">Слушайте христианские проповеди на вашем устройстве</text>
+  <text x="80" y="410" font-family="Onest" font-size="34" fill="#d4d4d4">Слушайте христианские проповеди на вашем устройстве</text>
 
   <!-- domain -->
-  <text x="80" y="480" font-family="Onest" font-weight="600" font-size="30" fill="#e8b45a">slovo-propovedi.ru</text>
+  <text x="80" y="480" font-family="Onest" font-weight="600" font-size="30" fill="#f16031">slovo-propovedi.ru</text>
 
   <!-- QR motif (decorative, suggests the on-page QR) -->
   <g transform="translate(930, 400)">
-    <rect x="0" y="0" width="190" height="190" rx="14" fill="#f6ecd4"/>
-    <g fill="#1a1f2e">
+    <rect x="0" y="0" width="190" height="190" rx="14" fill="#ffffff"/>
+    <g fill="#f16031">
       <rect x="18" y="18" width="44" height="44" rx="6"/>
-      <rect x="30" y="30" width="20" height="20" rx="3" fill="#f6ecd4"/>
+      <rect x="30" y="30" width="20" height="20" rx="3" fill="#ffffff"/>
       <rect x="128" y="18" width="44" height="44" rx="6"/>
-      <rect x="140" y="30" width="20" height="20" rx="3" fill="#f6ecd4"/>
+      <rect x="140" y="30" width="20" height="20" rx="3" fill="#ffffff"/>
       <rect x="18" y="128" width="44" height="44" rx="6"/>
-      <rect x="30" y="140" width="20" height="20" rx="3" fill="#f6ecd4"/>
+      <rect x="30" y="140" width="20" height="20" rx="3" fill="#ffffff"/>
       <rect x="80" y="80" width="16" height="16" rx="3"/>
       <rect x="104" y="80" width="16" height="16" rx="3"/>
       <rect x="80" y="104" width="16" height="16" rx="3"/>

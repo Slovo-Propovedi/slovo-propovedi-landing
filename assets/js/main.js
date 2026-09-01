@@ -102,6 +102,54 @@ function setupShaCopy() {
   })
 }
 
+/* --- Theme toggle --- */
+function applyTheme(mode) {
+  // Parse, Don't Validate: accept only known literals at the boundary.
+  const parsed = (mode === 'light' || mode === 'dark' || mode === 'system')
+    ? mode
+    : 'system'
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const theme = parsed === 'light' ? 'light'
+    : parsed === 'dark' ? 'dark'
+    : (prefersDark ? 'dark' : 'light')
+  document.documentElement.dataset.theme = theme
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.content = theme === 'dark' ? '#000' : '#fff'
+  const buttons = document.querySelectorAll('.theme-toggle button[data-mode]')
+  buttons.forEach(function (btn) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.mode === parsed))
+  })
+}
+
+function setupThemeToggle() {
+  const buttons = document.querySelectorAll('.theme-toggle button[data-mode]')
+  if (!buttons.length) return
+
+  // Parse, Don't Validate: read localStorage once at boot; corrupt or
+  // unknown values fall back to 'system'.
+  let persistedMode = 'system'
+  try {
+    const stored = localStorage.getItem('theme-mode')
+    if (stored === 'light' || stored === 'dark' || stored === 'system') {
+      persistedMode = stored
+    }
+  } catch {}
+  applyTheme(persistedMode)
+
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const mode = btn.dataset.mode
+      persistedMode = mode
+      try { localStorage.setItem('theme-mode', mode) } catch {}
+      applyTheme(mode)
+    })
+  })
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+    if (persistedMode === 'system') applyTheme('system')
+  })
+}
+
 /* --- Boot --- */
 async function loadRelease() {
   try {
@@ -228,5 +276,6 @@ async function loadScreenshots() {
 
 adjustCtaForAndroid()
 setupShaCopy()
+setupThemeToggle()
 loadRelease()
 loadScreenshots()

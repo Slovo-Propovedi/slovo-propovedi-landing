@@ -156,7 +156,7 @@ log('✓ Updated CHANGELOG.md', GREEN)
 const indexPath = 'index.html'
 const indexHtml = readFileSync(indexPath, 'utf-8')
 const bumpedHtml = indexHtml.replace(
-  /(\/assets\/(?:css\/main\.css|js\/main\.js))(?:\?v=[0-9]+\.[0-9]+\.[0-9]+)?/g,
+  /(\/assets\/(?:css\/main\.css|js\/(?:main|theme-init)\.js))(?:\?v=[0-9]+\.[0-9]+\.[0-9]+)?/g,
   `$1?v=${newVersion}`
 )
 writeFileSync(indexPath, bumpedHtml)

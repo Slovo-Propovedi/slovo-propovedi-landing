@@ -11,11 +11,11 @@ const OUT = 'assets/img/qr.svg'
 
 execSync(`npx --yes qrcode@1.5.4 -t svg -o ${OUT} "${URL}"`, { stdio: 'inherit' })
 
-// Re-theme the generated QR: cream card background + ink-navy modules so it
-// matches the manuscript palette while keeping high contrast for scanning.
+// Re-theme the generated QR: background intentionally left white (matches the
+// --qr-bg token) + near-black modules for maximum scan contrast.
 const fs = await import('node:fs')
 let svg = fs.readFileSync(OUT, 'utf-8')
-svg = svg.replace('fill="#ffffff"', 'fill="#f6ecd4"').replace('stroke="#000000"', 'stroke="#1a1f2e"')
+svg = svg.replace('stroke="#000000"', 'stroke="#1a1a1a"')
 fs.writeFileSync(OUT, svg)
 
 console.log(`✓ Regenerated ${OUT} encoding ${URL}`)

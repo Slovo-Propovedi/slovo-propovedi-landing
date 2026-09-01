@@ -16,6 +16,8 @@
 //      image + manifest locations present with the right caching.
 //   5. CHANGELOG.md has a section for the current package.json version.
 //   6. package-lock.json exists and its version matches package.json.
+//   7. assets/js/theme-init.js exists and index.html ships the
+//      <meta name="color-scheme" content="light dark"> pre-paint hint.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 
@@ -27,6 +29,9 @@ const bad = (msg) => {
 }
 
 const read = (path) => readFileSync(path, 'utf-8')
+
+// index.html is read by sections 1, 6 and 7 — read it once at the top.
+const html = existsSync('index.html') ? read('index.html') : null
 
 const SECURITY_HEADERS = [
   'X-Frame-Options',
@@ -49,11 +54,9 @@ function requiresHeaders(locationBody) {
 }
 
 // --- 1. index.html ---
-if (!existsSync('index.html')) {
+if (!html) {
   bad('index.html missing')
 } else {
-  const html = read('index.html')
-
   if (!/<html[^>]*\blang="ru"/.test(html)) bad('index.html: missing lang="ru"')
 
   for (const id of ['download-btn', 'meta-version', 'meta-size', 'meta-date', 'meta-sha256', 'sha-copy', 'screenshots-list']) {
@@ -211,9 +214,8 @@ if (!existsSync('package.json')) {
   }
 
   // Cache-busting: index.html must reference css/js with ?v=<package version>
-  if (existsSync('index.html')) {
-    const html = read('index.html')
-    for (const asset of ['/assets/css/main.css', '/assets/js/main.js']) {
+  if (html) {
+    for (const asset of ['/assets/css/main.css', '/assets/js/main.js', '/assets/js/theme-init.js']) {
       const ref = html.match(new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\?v=([0-9]+\\.[0-9]+\\.[0-9]+)`))
       if (!ref) {
         bad(`index.html: missing cache-busting ?v= on ${asset}`)
@@ -221,6 +223,17 @@ if (!existsSync('package.json')) {
         bad(`index.html: ${asset} ?v=${ref[1]} != package.json version ${pkg.version}`)
       }
     }
+  }
+}
+
+// --- 7. theme-init.js invariants ---
+if (!existsSync('assets/js/theme-init.js')) {
+  bad('assets/js/theme-init.js missing')
+}
+
+if (html) {
+  if (!/<meta name="color-scheme" content="light dark">/.test(html)) {
+    bad('index.html: missing <meta name="color-scheme" content="light dark">')
   }
 }
 
