@@ -230,7 +230,7 @@ prune_stale() {
 
 # --- Early no-op: already serving this exact set? ---
 # If the manifest fingerprint matches AND every listed file exists on disk,
-# nothing changed — exit 0 with zero writes (stale files still pruned).
+# no re-download or rewrite; stale files still pruned (self-heal).
 existing_fp="$(jq -r '.fingerprint // empty' "$SCREENSHOTS_DIR/manifest.json" 2>/dev/null || true)"
 if [ -n "$existing_fp" ] && [ "$existing_fp" = "$FINGERPRINT" ]; then
   all_present=1
