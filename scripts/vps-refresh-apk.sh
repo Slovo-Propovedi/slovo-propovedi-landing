@@ -72,6 +72,23 @@ elif [ -r "$TOKEN_DIR/github" ] && [ -s "$TOKEN_DIR/github" ]; then
   GITHUB_TOKEN="$(tr -d '\r\n' < "$TOKEN_DIR/github")"
 fi
 
+# --- Auth headers written to files (never in argv) ---
+# curl -H @file (>=7.55) reads the header from a file, keeping the token out of
+# /proc/*/cmdline. Files live in the private 0700 WORKDIR, cleaned by the EXIT trap.
+FORGEJO_AUTH_HDR=""
+if [ -n "$FORGEJO_TOKEN" ]; then
+  FORGEJO_AUTH_HDR="$WORKDIR/forgejo-auth.hdr"
+  printf 'Authorization: token %s\n' "$FORGEJO_TOKEN" > "$FORGEJO_AUTH_HDR"
+  chmod 600 "$FORGEJO_AUTH_HDR"
+fi
+
+GITHUB_AUTH_HDR=""
+if [ -n "$GITHUB_TOKEN" ]; then
+  GITHUB_AUTH_HDR="$WORKDIR/github-auth.hdr"
+  printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$GITHUB_AUTH_HDR"
+  chmod 600 "$GITHUB_AUTH_HDR"
+fi
+
 # --- Global state set by a successful source ---
 RELEASE_VERSION=""
 RELEASE_HTML_URL=""
@@ -141,7 +158,7 @@ process_source() {
     return 1
   fi
 
-  count="$(jq -e '[.assets[] | select(.name | test("^slovo-propovedi-v[0-9][^/]*\\.zip$"))] | length' "$json_file")" || {
+  count="$(jq '[.assets[] | select(.name | test("^slovo-propovedi-v[0-9][^/]*\\.zip$"))] | length' "$json_file")" || {
     echo "  [$name] could not inspect assets"
     rm -f "$json_file"
     return 1
@@ -225,11 +242,11 @@ process_source() {
 echo ">> Fetching latest mobile release..."
 if process_source "forgejo-anon" "$FORGEJO_API" "" ""; then
   :
-elif [ -n "$FORGEJO_TOKEN" ] && process_source "forgejo-token" "$FORGEJO_API" "Authorization: token $FORGEJO_TOKEN" ""; then
+elif [ -n "$FORGEJO_TOKEN" ] && process_source "forgejo-token" "$FORGEJO_API" "@$FORGEJO_AUTH_HDR" ""; then
   :
 elif process_source "github-anon" "$GITHUB_API" "" "Accept: application/vnd.github+json"; then
   :
-elif [ -n "$GITHUB_TOKEN" ] && process_source "github-token" "$GITHUB_API" "Authorization: Bearer $GITHUB_TOKEN" "Accept: application/vnd.github+json"; then
+elif [ -n "$GITHUB_TOKEN" ] && process_source "github-token" "$GITHUB_API" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json"; then
   :
 else
   echo "ERROR: no release source succeeded; leaving previous state untouched" >&2
