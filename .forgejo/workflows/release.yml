@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify version consistency
+        run: |
+          TAG_VERSION="${{ github.ref_name }}"
+          # Strip optional 'v' prefix
+          TAG_VERSION="${TAG_VERSION#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+            echo "::error::Run 'npm run bump-version <version>' to create a consistent release"
+            exit 1
+          fi
+          echo "Version consistency check passed: $TAG_VERSION"
+
+      - name: Wait for CI to pass on this commit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          URL="${{ github.server_url }}/api/v1/repos/${{ github.repository }}/commits/${{ github.sha }}/status"
+
+          # Runner capacity is 2, so this job holding a runner slot while
+          # polling no longer starves the CI workflow of a runner to run on.
+          for i in $(seq 1 40); do
+            # Forgejo appends the triggering event to the context, e.g.
+            # "CI / validate (push)", so match by prefix rather than equality.
+            STATE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$URL" | jq -r '.statuses[] | select(.context | startswith("CI / validate")) | .status' | head -1)
+
+            case "$STATE" in
+              success) echo "CI passed for ${{ github.sha }}"; exit 0 ;;
+              failure|error) echo "::error::CI did not pass for ${{ github.sha }} (status: $STATE). Refusing to deploy."; exit 1 ;;
+            esac
+
+            echo "Waiting for CI status on ${{ github.sha }} (attempt $i/40)..."
+            sleep 15
+          done
+
+          echo "::error::Timed out waiting for CI status on ${{ github.sha }}"
+          exit 1
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          DEPLOY_TAG: ${{ github.ref_name }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          LANDING_HOSTNAME: slovo-propovedi.ru
+        run: |
+          SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
+          # Transfer source code (runner already has the tagged checkout).
+          # Path must match the deploy script's SRC_PATH.
+          tar czf - --exclude='.git' --exclude=node_modules --exclude=test-apk . \
+            | ssh "$SSH_TARGET" "rm -rf /slovo/landing/container-src && mkdir -p /slovo/landing/container-src && tar xzf - -C /slovo/landing/container-src"
+          # Upload and run deploy script
+          scp scripts/vps-deploy.sh "$SSH_TARGET:/tmp/vps-deploy.sh"
+          ssh "$SSH_TARGET" \
+            "chmod +x /tmp/vps-deploy.sh && \
+             DEPLOY_TAG='$DEPLOY_TAG' \
+             ACME_EMAIL='$ACME_EMAIL' \
+             LANDING_HOSTNAME='$LANDING_HOSTNAME' \
+             bash /tmp/vps-deploy.sh"
+
+      - name: Provision tokens and refresh APK
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
+          # Optional tokens piped via stdin (never in process args)
+          if [ -n "${{ secrets.FORGEJO_API_TOKEN }}" ]; then
+            printf '%s' "${{ secrets.FORGEJO_API_TOKEN }}" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/forgejo"
+          fi
+          if [ -n "${{ secrets.GITHUB_MIRROR_TOKEN }}" ]; then
+            printf '%s' "${{ secrets.GITHUB_MIRROR_TOKEN }}" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/github"
+          fi
+          # Refresh is best-effort: deployment must not fail if the APK source
+          # is down. Log output for diagnosis.
+          ssh "$SSH_TARGET" "systemctl start slovo-landing-refresh.service && sleep 5 && systemctl is-active slovo-landing-refresh.service || true; ls -la /slovo/landing/apk || true"
+
+      - name: Extract changelog section
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          awk -v target="## [$VERSION]" '
+            index($0, target) == 1 { found = 1; next }
+            found && $0 ~ /^## \[/ { exit }
+            found && $0 ~ /^\[.*\]: / { exit }
+            found { print }
+          ' CHANGELOG.md > release-body.md
+
+          if [ ! -s release-body.md ]; then
+            echo "::error::No changelog section found for v$VERSION in CHANGELOG.md"
+            exit 1
+          fi
+
+          echo "Extracted changelog for v$VERSION ($(wc -l < release-body.md) lines)"
+
+      - name: Create Forgejo Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          jq -n \
+            --arg tag "${{ github.ref_name }}" \
+            --arg name "${{ github.ref_name }}" \
+            --arg body "$(cat release-body.md)" \
+            '{tag_name: $tag, name: $name, body: $body}' > release.json
+
+          HTTP_CODE=$(curl -s -o release-response.json -w "%{http_code}" -X POST \
+            "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/releases" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @release.json)
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Failed to create Forgejo Release (HTTP $HTTP_CODE)"
+            cat release-response.json
+            exit 1
+          fi
+
+          echo "Created Forgejo Release ${{ github.ref_name }} (HTTP $HTTP_CODE)"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f release-body.md release.json release-response.json

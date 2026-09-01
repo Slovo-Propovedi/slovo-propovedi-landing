@@ -10,9 +10,8 @@ LABEL org.opencontainers.image.title="slovo-propovedi-landing" \
 
 # NOTE: /usr/share/nginx/html/apk is a read-only bind-mount from the host
 # /slovo/landing/apk supplied by the systemd unit. Do NOT COPY apk files into
-# the image. We only create the dir so the mount target exists and the path
-# never 404s hard before the mount is attached.
-RUN mkdir -p /usr/share/nginx/html/apk
+# the image. Docker creates the mountpoint automatically when the bind mount is
+# attached, so no placeholder dir is needed here.
 
 COPY index.html robots.txt /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
