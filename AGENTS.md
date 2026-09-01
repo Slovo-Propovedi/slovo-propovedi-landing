@@ -68,6 +68,9 @@ npm run generate-qr
 # Regenerate the social-card image (needs rsvg-convert or ImageMagick)
 npm run generate-og
 
+# Local preview server (port 8377, Ctrl+C to stop)
+npm run dev
+
 # Build and run the image locally
 docker build -t slovo-propovedi-landing .
 docker run --rm -p 8080:8080 slovo-propovedi-landing

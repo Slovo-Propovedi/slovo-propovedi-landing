@@ -7,7 +7,8 @@
     "validate": "node scripts/validate.mjs",
     "bump-version": "node scripts/bump-version.mjs",
     "generate-qr": "node scripts/generate-qr.mjs",
-    "generate-og": "node scripts/generate-og.mjs"
+    "generate-og": "node scripts/generate-og.mjs",
+    "dev": "python3 -m http.server 8377 --bind 127.0.0.1"
   },
   "devDependencies": {
     "husky": "^9.1.7"
