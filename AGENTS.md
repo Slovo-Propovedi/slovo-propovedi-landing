@@ -28,8 +28,8 @@ assets/
   fonts/*.woff2       # Self-hosted Unbounded + Onest (latin + cyrillic subsets)
   img/                # favicon.svg, qr.svg, og.png (social card, committed)
 scripts/
-  bump-version.mjs    # Version bump: package.json + CHANGELOG.md + index.html
-                      #   ?v= cache-busting, commit -s, tag
+  bump-version.mjs    # Version bump: package.json + package-lock.json + CHANGELOG.md
+                      #   + index.html ?v= cache-busting, commit -s, tag
   generate-qr.mjs     # Regenerates assets/img/qr.svg via npx qrcode
   generate-og.mjs     # Regenerates assets/img/og.png (rsvg-convert/ImageMagick)
   validate.mjs        # Consistency checks (extended: nginx headers, CSP, og:image)
@@ -54,8 +54,8 @@ npm install
 # Sanity check that required files exist and are consistent
 npm run validate
 
-# Version bump — updates package.json + CHANGELOG.md + index.html ?v=,
-# commits with signoff (-s) and tags v<version> automatically. Then push:
+# Version bump — updates package.json + package-lock.json + CHANGELOG.md +
+# index.html ?v=, commits with signoff (-s) and tags v<version> automatically. Then push:
 npm run bump-version <version|patch|minor|major>
 git push --follow-tags origin main
 
@@ -142,7 +142,9 @@ Conventional commits (enforced by `.husky/commit-msg`):
    automatically.** Check `git diff --cached` before running; after, push
    manually with `git push --follow-tags origin main`. The script verifies the
    tag actually landed. It also rewrites the `?v=` cache-busting query on the
-   css/js references in `index.html` — keep those references versioned.
+   css/js references in `index.html` and syncs the version in
+   `package-lock.json` (root + `packages[""]`) — keep those references
+   versioned.
 3. **Stock nginx has no `.apk` MIME mapping** — the scoped `types { }` block in
    the `/apk` location is required or Android downloads will be served as
    `application/octet-stream`.

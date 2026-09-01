@@ -162,6 +162,27 @@ const bumpedHtml = indexHtml.replace(
 writeFileSync(indexPath, bumpedHtml)
 log('✓ Updated index.html cache-busting (?v=)', GREEN)
 
+// 4. package-lock.json — keep root and workspace version in sync with package.json
+const lockPath = 'package-lock.json'
+let lock
+
+try {
+  lock = JSON.parse(readFileSync(lockPath, 'utf-8'))
+} catch (err) {
+  exitError(`Failed to read or parse ${lockPath}: ${err.message}`)
+}
+
+if (lock.version === newVersion && (!lock.packages || !lock.packages[''] || lock.packages[''].version === newVersion)) {
+  log(`>> ${lockPath} already at ${newVersion} — skipping`, YELLOW)
+} else {
+  lock.version = newVersion
+  if (lock.packages && lock.packages['']) {
+    lock.packages[''].version = newVersion
+  }
+  writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`)
+  log(`>> ${lockPath} → ${newVersion}`, GREEN)
+}
+
 // --- Git operations ---
 log('\n→ Staging all changes...', YELLOW)
 execSync('git add -A', { cwd: process.cwd() })
