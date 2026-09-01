@@ -24,4 +24,4 @@ jobs:
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
-          ssh "$SSH_TARGET" "systemctl start slovo-landing-refresh.service; journalctl -u slovo-landing-refresh.service -n 50 --no-pager || true"
+          ssh "$SSH_TARGET" 'systemctl start slovo-landing-refresh.service; rc=$?; journalctl -u slovo-landing-refresh.service -n 50 --no-pager; exit $rc'

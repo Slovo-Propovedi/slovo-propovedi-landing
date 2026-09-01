@@ -101,6 +101,7 @@ jobs:
           # is down. Log output for diagnosis. The unit is Type=oneshot, so
           # `systemctl start` blocks until the refresh finishes; afterwards
           # `is-active` would report inactive, so journalctl is the signal.
+          # NOTE: `|| true` is intentional — a failed refresh must not block deploy.
           ssh "$SSH_TARGET" "systemctl start slovo-landing-refresh.service; journalctl -u slovo-landing-refresh.service -n 30 --no-pager || true"
 
       - name: Extract changelog section
