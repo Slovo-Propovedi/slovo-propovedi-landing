@@ -11,8 +11,9 @@
 //   3. QR + favicon + og.png exist (og.png verified as PNG by magic bytes);
 //      fonts dir has >= 8 .woff2.
 //   4. nginx.conf — APK MIME, caching, JSON, hidden-file deny FIRST, the
-//      security headers REPEATED inside every add_header location, and the
-//      four CSP strings byte-identical with form-action 'none'.
+//      security headers REPEATED inside every add_header location, the six
+//      CSP strings byte-identical with form-action 'none', and the screenshots
+//      image + manifest locations present with the right caching.
 //   5. CHANGELOG.md has a section for the current package.json version.
 //   6. package-lock.json exists and its version matches package.json.
 
@@ -137,19 +138,19 @@ if (!existsSync('nginx.conf')) {
   // add_header inheritance fix: the full security header set must be REPEATED
   // inside every location that declares its own add_header.
   const headerLocations = locations.filter((loc) => loc.body.includes('add_header'))
-  if (headerLocations.length < 3) {
-    bad(`nginx.conf: expected >= 3 locations with add_header, found ${headerLocations.length}`)
+  if (headerLocations.length < 5) {
+    bad(`nginx.conf: expected >= 5 locations with add_header, found ${headerLocations.length}`)
   }
   for (const loc of headerLocations) {
     const reason = requiresHeaders(loc.body)
     if (reason) bad(`nginx.conf: location ${loc.selector} ${reason}`)
   }
 
-  // The four CSP strings (server level + the three repeating locations) must
+  // The six CSP strings (server level + the five repeating locations) must
   // be byte-identical and hardened with form-action 'none'.
   const cspStrings = [...nginx.matchAll(/add_header Content-Security-Policy "([^"]+)"/g)].map((m) => m[1])
-  if (cspStrings.length !== 4) {
-    bad(`nginx.conf: expected exactly 4 CSP strings (server + 3 locations), found ${cspStrings.length}`)
+  if (cspStrings.length !== 6) {
+    bad(`nginx.conf: expected exactly 6 CSP strings (server + 5 locations), found ${cspStrings.length}`)
   } else {
     const [first, ...rest] = cspStrings
     if (rest.some((csp) => csp !== first)) {
@@ -160,17 +161,24 @@ if (!existsSync('nginx.conf')) {
     }
   }
 
-  // Dotfile-deny must be the FIRST regex location so /apk/.tmp-*.apk and
-  // /assets/.secret.js are never served by later-declared regexes.
+  // Dotfile-deny must be the FIRST regex location so /apk/.tmp-*.apk,
+  // /screenshots/.tmp-*.png and /assets/.secret.js are never served by
+  // later-declared regexes.
   const denyIndex = nginx.indexOf('location ~ /\\.')
   const apkIndex = nginx.indexOf('location ~* ^/apk/')
+  const shotsIndex = nginx.indexOf('location ~* ^/screenshots/')
   const assetIndex = nginx.indexOf('location ~* \\.(?:js|css|png|svg|ico|woff2)')
   if (denyIndex === -1) {
     bad('nginx.conf: dotfile-deny location (~ /\\.) not found')
-  } else if (apkIndex === -1 || assetIndex === -1) {
-    bad('nginx.conf: apk or asset regex location not found')
-  } else if (denyIndex > apkIndex || denyIndex > assetIndex) {
-    bad('nginx.conf: dotfile-deny location must appear BEFORE the apk and asset regex locations')
+  } else if (apkIndex === -1 || shotsIndex === -1 || assetIndex === -1) {
+    bad('nginx.conf: apk, screenshots, or asset regex location not found')
+  } else if (denyIndex > apkIndex || denyIndex > shotsIndex || denyIndex > assetIndex) {
+    bad('nginx.conf: dotfile-deny location must appear BEFORE the apk, screenshots, and asset regex locations')
+  }
+
+  // Screenshots manifest location must exist and be served fresh (no-cache).
+  if (!/location = \/screenshots\/manifest\.json \{[\s\S]*?Cache-Control "no-cache"/.test(nginx)) {
+    bad('nginx.conf: screenshots manifest location missing no-cache')
   }
 }
 

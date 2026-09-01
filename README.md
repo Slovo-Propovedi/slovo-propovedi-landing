@@ -26,6 +26,27 @@ APK-файлы не хранятся в этом репозитории. Скр�
 Токены для API (если репозитории приватные или rate-limited) хранятся в
 `/slovo/landing/tokens/` (root-only 0700).
 
+## Скриншоты
+
+Скриншоты **не хранятся в этом репозитории**. Скрипт
+(`scripts/vps-refresh-screenshots.sh`) работает на VPS и выполняет следующее:
+
+1. Дважды в день по таймеру `slovo-landing-refresh-shots.timer` (04:30 / 16:30 UTC,
+   `RandomizedDelaySec=30m`), а также пост-деплой.
+2. Получает git-дерево мобильного репозитория (Forgejo — первичный, GitHub —
+   резервный) и выбирает канонические PNG из `assets/screenshots/`.
+3. Проверяет каждый файл: магические байты PNG и git-blob sha1
+   (`sha1("blob <size>\0" + содержимое)` должен совпасть с sha из дерева).
+4. Публикует файлы с именами `<stem>-<sha8>.png` (sha в имени → immutable-кеш)
+   и `manifest.json` (fingerprint, updatedAt, sourceUrl, sourcePath, images)
+   в `/slovo/landing/screenshots`, который nginx отдаёт как `/screenshots`.
+5. Если fingerprint уже совпадает с удалённым деревом — выход 0 без записи.
+   При ошибке сохраняется предыдущее состояние (keep-last-good).
+
+Страница показывает галерею из `manifest.json` с обязательной строкой
+«Скриншоты: © 2026 Slovo.Propovedi, GPL-3.0-or-later» (лицензия GPL-3.0-or-later
+из REUSE.toml мобильного репозитория).
+
 ## Разработка
 
 ### Запуск локально

@@ -37,6 +37,9 @@ scripts/
                       #   writes Traefik labels, installs refresh units
   vps-refresh-apk.sh  # Runs ON the VPS as root: fetches latest mobile release,
                       #   publishes APK + latest.json into the /apk bind mount
+  vps-refresh-screenshots.sh # Runs ON the VPS as root: polls the mobile repo
+                      #   git tree, syncs screenshots + manifest.json into the
+                      #   /screenshots bind mount
 .forgejo/workflows/
   ci.yml              # Validate on push/PR to main
   release.yml         # Tag deploy: version check, SSH deploy, token provisioning,
@@ -83,6 +86,25 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   location so mid-copy partials (`/apk/.tmp-<pid>.apk`) and hidden files are
   never served by later-declared regexes.
 
+## Screenshots serving
+
+- Screenshots are **never committed to this repo**. `scripts/vps-refresh-screenshots.sh`
+  polls the mobile repo's git tree (`assets/screenshots/`, branch `main`) twice
+  daily via `slovo-landing-refresh-shots.timer` (04:30 / 16:30 UTC, randomized)
+  and publishes verified PNGs + `manifest.json` into `/slovo/landing/screenshots`,
+  bind-mounted read-only at `/usr/share/nginx/html/screenshots`.
+- Every PNG is verified before publish: PNG magic bytes AND git-blob sha1
+  (`sha1("blob <size>\0" + content)` must equal the tree sha). Filenames embed
+  the blob sha prefix (`<stem>-<sha8>.png`) so nginx can cache them immutably.
+- `manifest.json` is written LAST (the commit point) and is the gallery's
+  contract: `fingerprint`, `updatedAt`, `sourceUrl`, `sourcePath`, `images`
+  (each `{file, sha, size}`). The UI renders only from this manifest.
+- The gallery must keep the credit line «Скриншоты: © 2026 Slovo.Propovedi,
+  GPL-3.0-or-later» (REUSE.toml in the mobile repo covers `assets/**` as
+  GPL-3.0-or-later).
+- The dotfile-deny location also protects `/screenshots/.tmp-<pid>-*.png`
+  mid-copy partials and the `.sync.lock` concurrency guard.
+
 ## VPS deployment & APK refresh
 
 - `scripts/vps-deploy.sh` runs on the VPS as root (triggered by the release
@@ -95,6 +117,14 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   the archive, and atomically publishes `slovo-propovedi-vX.Y.Z.apk` +
   `latest.json`. If the served version already matches the latest release it
   exits 0 early without re-downloading the ~30MB archive.
+- `scripts/vps-refresh-screenshots.sh` runs on the VPS as root, twice daily via
+  `slovo-landing-refresh-shots.timer` (same cadence). It polls the mobile repo
+  git tree, verifies each PNG, and atomically publishes the gallery +
+  `manifest.json`. If the served fingerprint already matches the remote tree it
+  exits 0 early with zero writes.
+- The screenshots bind mount (`/slovo/landing/screenshots` →
+  `/usr/share/nginx/html/screenshots`, read-only) is added to the container
+  unit by `vps-deploy.sh`, next to the `/apk` mount.
 - Tokens for the release APIs live in `/slovo/landing/tokens` (root-owned
   0700 — the `slovo` user and container can never read them). The release
   workflow provisions them via stdin; the refresh script reads them as root.

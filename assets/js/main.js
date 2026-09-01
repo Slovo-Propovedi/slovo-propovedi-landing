@@ -116,6 +116,107 @@ async function loadRelease() {
   }
 }
 
+/* --- Parse the screenshots manifest into trusted fields --- */
+const SCREENSHOT_FILE_RE = /^[A-Za-z0-9._-]+\.png$/
+const SHA40_RE = /^[0-9a-f]{40}$/i
+
+function parseScreenshotsManifest(data) {
+  if (!data || typeof data !== 'object') throw new Error('manifest.json: payload is not an object')
+  const { images } = data
+  if (!Array.isArray(images)) throw new Error('manifest.json: images is not an array')
+  // Fail-closed: any malformed entry rejects the whole manifest so the gallery
+  // never renders a file that could point outside the /screenshots mount.
+  return images.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') throw new Error(`manifest.json: images[${index}] is not an object`)
+    const { file, sha, size } = entry
+    if (typeof file !== 'string' || !SCREENSHOT_FILE_RE.test(file)) {
+      throw new Error(`manifest.json: images[${index}] invalid file`)
+    }
+    if (typeof sha !== 'string' || !SHA40_RE.test(sha)) {
+      throw new Error(`manifest.json: images[${index}] invalid sha`)
+    }
+    if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) {
+      throw new Error(`manifest.json: images[${index}] invalid size`)
+    }
+    return { file, sha, size }
+  })
+}
+
+/* --- Caption map keyed by stem (may drift; the fallback always applies) --- */
+const SCREENSHOT_CAPTIONS = {
+  'about-screen': 'О приложении',
+  'fullscreen-player': 'Плеер на весь экран',
+  'history-screen': 'История прослушивания',
+  'listen-screen-dark': 'Слушать (тёмная тема)',
+  'listen-screen-white': 'Слушать (светлая тема)',
+  'menu-in-fullscreen-player': 'Меню в полноэкранном плеере',
+  'more-screen': 'Ещё',
+  'playlist-in-bottomsheet': 'Плейлист в нижней панели',
+  'playlist-screen-dark': 'Плейлист (тёмная тема)',
+  'playlists-list-screen': 'Список плейлистов',
+  'search-screen-dark': 'Поиск (тёмная тема)',
+  'settings-screen': 'Настройки',
+  'share-screen': 'Поделиться',
+}
+
+function screenshotSrc(file) {
+  return `/screenshots/${file}`
+}
+
+function screenshotAlt(file) {
+  // Manifest filenames are <stem>-<sha8>.png; strip the sha suffix to recover
+  // the original stem the caption map is keyed by.
+  const stem = file.replace(/-[0-9a-fA-F]{8}\.png$/, '')
+  return SCREENSHOT_CAPTIONS[stem] || 'Скриншот интерфейса'
+}
+
+/* --- Render the gallery into the DOM (createElement/textContent only) --- */
+function renderScreenshots(images) {
+  const list = $('screenshots-list')
+  if (!list) return
+  const fragment = document.createDocumentFragment()
+  for (const entry of images) {
+    const li = document.createElement('li')
+    li.className = 'screenshot-item'
+
+    const frame = document.createElement('figure')
+    frame.className = 'screenshot-frame'
+
+    const img = document.createElement('img')
+    img.className = 'screenshot-img'
+    img.src = screenshotSrc(entry.file)
+    img.alt = screenshotAlt(entry.file)
+    img.loading = 'lazy'
+    img.decoding = 'async'
+    img.width = 1080
+    img.height = 2340
+    // Fade the frame in once the image is ready (reduced-motion handled in CSS)
+    const reveal = () => frame.classList.add('is-loaded')
+    img.addEventListener('load', reveal, { once: true })
+    img.addEventListener('error', reveal, { once: true })
+
+    frame.appendChild(img)
+    li.appendChild(frame)
+    fragment.appendChild(li)
+  }
+  list.appendChild(fragment)
+}
+
+/* --- Boot --- */
+async function loadScreenshots() {
+  try {
+    const response = await fetch('/screenshots/manifest.json', { cache: 'no-store' })
+    if (!response.ok) throw new Error(`manifest.json: HTTP ${response.status}`)
+    renderScreenshots(parseScreenshotsManifest(await response.json()))
+  } catch (error) {
+    // Hide the gallery gracefully; the section link and credit stay visible.
+    const list = $('screenshots-list')
+    if (list) list.hidden = true
+    console.warn(error)
+  }
+}
+
 adjustCtaForAndroid()
 setupShaCopy()
 loadRelease()
+loadScreenshots()

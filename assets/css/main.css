@@ -381,6 +381,11 @@ a:hover {
   color: var(--gold-soft);
 }
 
+.hero-source {
+  margin: 1.25rem 0 0;
+  font-size: 0.9rem;
+}
+
 /* --- Hero side: metadata + QR (offset, grid-breaking) --- */
 
 .hero-side {
@@ -612,6 +617,91 @@ a:hover {
 }
 
 /* --------------------------------------------------------------------------
+   6b. Screenshots gallery — phone frames, staggered manuscript feel
+   -------------------------------------------------------------------------- */
+
+.screenshots {
+  padding-block: clamp(3.5rem, 7vw, 5.5rem);
+  border-top: 1px solid var(--line-soft);
+}
+
+.screenshots-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem 1.5rem;
+  align-items: start;
+}
+
+.screenshot-item {
+  /* Hand-placed tilt + staggered vertical rhythm break the uniform grid */
+  --tilt: 0deg;
+  transform: translateY(0) rotate(var(--tilt));
+  transition: transform 0.25s ease;
+}
+
+.screenshot-item:nth-child(3n + 2) {
+  --tilt: 0.8deg;
+  margin-top: 2.75rem;
+}
+
+.screenshot-item:nth-child(3n + 3) {
+  --tilt: -0.6deg;
+  margin-top: 1.25rem;
+}
+
+.screenshot-item:nth-child(3n + 1) {
+  --tilt: 0.4deg;
+}
+
+.screenshot-item:hover {
+  transform: translateY(-6px) rotate(0deg);
+  z-index: 2;
+}
+
+.screenshot-frame {
+  margin: 0;
+  position: relative;
+  aspect-ratio: 1080 / 2340;
+  padding: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: linear-gradient(160deg, var(--ink-3), var(--ink-2));
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  /* Fade-in once the image loads (is-loaded added by JS) */
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.screenshot-frame.is-loaded {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.screenshot-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 17px;
+}
+
+.screenshots-source {
+  margin: 2.5rem 0 0;
+  font-size: 0.95rem;
+}
+
+.screenshots-credit {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--cream-dim);
+}
+
+/* --------------------------------------------------------------------------
    7. Footer
    -------------------------------------------------------------------------- */
 
@@ -682,8 +772,14 @@ a:hover {
   }
   .btn,
   .feature-card,
-  .qr-card {
+  .qr-card,
+  .screenshot-item,
+  .screenshot-frame {
     transition: none;
+  }
+  .screenshot-frame {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -712,5 +808,20 @@ a:hover {
   }
   .header-nav {
     display: none;
+  }
+  /* Screenshots: horizontal scroll-snap carousel on small screens */
+  .screenshots-list {
+    display: flex;
+    gap: 1.25rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin-inline: -4vw;
+    padding-inline: 4vw;
+    padding-bottom: 1rem;
+  }
+  .screenshot-item {
+    flex: 0 0 72vw;
+    scroll-snap-align: center;
+    margin-top: 0;
   }
 }

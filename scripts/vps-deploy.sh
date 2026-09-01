@@ -209,10 +209,10 @@ fi
 
 # --- 1. Create paths ---
 echo ">> Ensuring paths exist..."
-mkdir -p "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk"
-chown slovo:slovo "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk"
+mkdir -p "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
+chown slovo:slovo "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
 chmod 0750 "$BASE_PATH" "$SRC_PATH"
-chmod 0755 "$BASE_PATH/apk"
+chmod 0755 "$BASE_PATH/apk" "$BASE_PATH/screenshots"
 # Tokens dir: root-only (refresh reads as root; slovo user cannot read tokens — intentional)
 install -d -m 0700 -o root -g root "$BASE_PATH/tokens"
 
@@ -291,6 +291,7 @@ ExecStartPre=/usr/bin/env docker create \\
     --label-file=$BASE_PATH/labels \\
     --memory=$MEMORY_LIMIT \\
     --mount type=bind,src=$BASE_PATH/apk,dst=/usr/share/nginx/html/apk,ro \\
+    --mount type=bind,src=$BASE_PATH/screenshots,dst=/usr/share/nginx/html/screenshots,ro \\
     $IMAGE_NAME
 ExecStartPre=/usr/bin/env docker network connect $TRAEFIK_NETWORK slovo-landing
 ExecStart=/usr/bin/env docker start --attach slovo-landing
@@ -354,9 +355,45 @@ systemctl daemon-reload
 systemctl enable --now slovo-landing-refresh.timer
 echo "[OK] slovo-landing-refresh.timer enabled (twice daily)"
 
-# --- 10. Initial APK refresh ---
+# --- 9b. Install screenshots refresh units ---
+# Same pattern as the APK refresh: the script ships in container-src and is
+# installed into the persistent BASE_PATH so it survives future deploys.
+echo ">> Installing screenshots refresh units..."
+install -m 0750 "$SRC_PATH/scripts/vps-refresh-screenshots.sh" "$BASE_PATH/vps-refresh-screenshots.sh"
+
+cat > /etc/systemd/system/slovo-landing-refresh-shots.service <<EOF
+[Unit]
+Description=Refresh slovo-landing screenshots from the mobile repo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$BASE_PATH/vps-refresh-screenshots.sh
+EOF
+
+cat > /etc/systemd/system/slovo-landing-refresh-shots.timer <<EOF
+[Unit]
+Description=Twice-daily screenshots refresh for slovo-landing
+
+[Timer]
+OnCalendar=*-*-* 04,16:30:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now slovo-landing-refresh-shots.timer
+echo "[OK] slovo-landing-refresh-shots.timer enabled (twice daily)"
+
+# --- 10. Initial refresh ---
 echo ">> Triggering initial APK refresh..."
 systemctl start slovo-landing-refresh.service || echo "  WARN: initial APK refresh failed; timer will retry"
+echo ">> Triggering initial screenshots refresh..."
+systemctl start slovo-landing-refresh-shots.service || echo "  WARN: initial screenshots refresh failed; timer will retry"
 
 # --- 11. Cleanup ---
 rm -f /tmp/vps-deploy.sh
