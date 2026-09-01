@@ -190,7 +190,7 @@ TRAEFIK_SVC
 
   # Wait for Traefik to become active
   echo "  Waiting for Traefik to start..."
-  for i in $(seq 1 15); do
+  for _ in $(seq 1 15); do
     if systemctl is-active --quiet "$TRAEFIK_SERVICE" 2>/dev/null; then
       break
     fi
@@ -213,6 +213,8 @@ mkdir -p "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk"
 chown slovo:slovo "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk"
 chmod 0750 "$BASE_PATH" "$SRC_PATH"
 chmod 0755 "$BASE_PATH/apk"
+# Tokens dir: root-only (refresh reads as root; slovo user cannot read tokens — intentional)
+install -d -m 0700 -o root -g root "$BASE_PATH/tokens"
 
 # --- 2. Verify source code ---
 # Source code is transferred by the Forgejo workflow (tar+ssh) before this
@@ -233,13 +235,15 @@ echo ">> Writing Traefik labels..."
   printf 'traefik.enable=true\n'
   printf 'traefik.docker.network=%s\n' "$TRAEFIK_NETWORK"
   printf 'traefik.http.services.slovo-landing.loadbalancer.server.port=%s\n' "$CONTAINER_PORT"
+  # shellcheck disable=SC2016 # literal backticks are Traefik label syntax
   printf 'traefik.http.routers.slovo-landing.rule=Host(`%s`) || Host(`%s`)\n' "$LANDING_HOSTNAME" "$WWW_HOSTNAME"
   printf 'traefik.http.routers.slovo-landing.service=slovo-landing\n'
   printf 'traefik.http.routers.slovo-landing.entrypoints=web-secure\n'
   printf 'traefik.http.routers.slovo-landing.tls=true\n'
   printf 'traefik.http.routers.slovo-landing.tls.certResolver=default\n'
   printf 'traefik.http.routers.slovo-landing.middlewares=slovo-landing-www-to-apex\n'
-  printf 'traefik.http.middlewares.slovo-landing-www-to-apex.redirectregex.regex=https://www\\.([^/]+)/(.*) \n'
+  printf 'traefik.http.middlewares.slovo-landing-www-to-apex.redirectregex.regex=https://www\\.([^/]+)/(.*)\n'
+  # shellcheck disable=SC2016 # literal $1/$2 are Traefik replacement back-references
   printf 'traefik.http.middlewares.slovo-landing-www-to-apex.redirectregex.replacement=https://$1/$2\n'
   printf 'traefik.http.middlewares.slovo-landing-www-to-apex.redirectregex.permanent=true\n'
 } > "$BASE_PATH/labels"
@@ -350,6 +354,10 @@ systemctl daemon-reload
 systemctl enable --now slovo-landing-refresh.timer
 echo "[OK] slovo-landing-refresh.timer enabled (twice daily)"
 
-# --- 10. Cleanup ---
+# --- 10. Initial APK refresh ---
+echo ">> Triggering initial APK refresh..."
+systemctl start slovo-landing-refresh.service || echo "  WARN: initial APK refresh failed; timer will retry"
+
+# --- 11. Cleanup ---
 rm -f /tmp/vps-deploy.sh
 echo ">> Done."

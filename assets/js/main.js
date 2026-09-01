@@ -9,15 +9,28 @@ const RELEASES_URL = 'https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-m
 const $ = (id) => document.getElementById(id)
 
 /* --- Parse the latest.json payload into trusted fields --- */
+const APK_FILENAME_RE = /^[\w.\-]+\.apk$/
+const APK_DOWNLOAD_URL_RE = /^\/apk\/[\w.\-]+\.apk$/
+
 function parseRelease(data) {
   if (!data || typeof data !== 'object') throw new Error('latest.json: payload is not an object')
   const { version, filename, size, sha256, date, downloadUrl } = data
   if (typeof version !== 'string' || !version) throw new Error('latest.json: missing version')
-  if (typeof filename !== 'string' || !filename) throw new Error('latest.json: missing filename')
+  // filename is used verbatim as the download attribute and must never carry a
+  // path separator or whitespace (trust-chain: the CTA points wherever it says).
+  if (typeof filename !== 'string' || !APK_FILENAME_RE.test(filename)) {
+    throw new Error('latest.json: invalid filename')
+  }
   if (typeof size !== 'number' || size < 0) throw new Error('latest.json: invalid size')
   if (typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(sha256)) throw new Error('latest.json: invalid sha256')
   if (typeof date !== 'string' || Number.isNaN(Date.parse(date))) throw new Error('latest.json: invalid date')
-  return { version, filename, size, sha256, date, downloadUrl: downloadUrl || `/apk/${filename}` }
+  // downloadUrl must be a same-origin path under the /apk mount; anything else
+  // (absolute URLs, other origins, non-strings) falls back to the derived path.
+  const trustedDownloadUrl =
+    typeof downloadUrl === 'string' && APK_DOWNLOAD_URL_RE.test(downloadUrl)
+      ? downloadUrl
+      : `/apk/${filename}`
+  return { version, filename, size, sha256, date, downloadUrl: trustedDownloadUrl }
 }
 
 /* --- Pure formatters --- */
@@ -41,6 +54,9 @@ function renderRelease(release) {
   const btn = $('download-btn')
   btn.href = release.downloadUrl
   btn.setAttribute('download', release.filename)
+
+  // SHA copy is only meaningful once real metadata is rendered.
+  $('sha-copy').disabled = false
 }
 
 /* --- Gentle notice when metadata cannot be fetched --- */
@@ -67,18 +83,21 @@ function setupShaCopy() {
   const sha = $('meta-sha256')
   if (!button || !sha) return
 
+  // aria-live on the button itself: its text swaps between the label and the
+  // feedback, so screen readers announce the change without a separate region.
+  button.setAttribute('aria-live', 'polite')
+  button.disabled = true
+
   button.addEventListener('click', async () => {
     const value = sha.title || sha.textContent
     try {
       await navigator.clipboard.writeText(value)
       button.textContent = 'Скопировано ✓'
-      button.setAttribute('aria-pressed', 'true')
     } catch {
       button.textContent = 'Ошибка'
     }
     setTimeout(() => {
       button.textContent = 'Копировать'
-      button.removeAttribute('aria-pressed')
     }, 2000)
   })
 }
@@ -92,7 +111,7 @@ async function loadRelease() {
     renderRelease(release)
   } catch (error) {
     // Keep the no-JS fallback href (releases page) and inform the visitor.
-    showNotice('Не удалось получить данные о версии. Скачайте APK со страницы релизов.')
+    showNotice(`Не удалось получить данные о версии. Скачайте APK со страницы релизов: ${RELEASES_URL}`)
     console.warn(error)
   }
 }

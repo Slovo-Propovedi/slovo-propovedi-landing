@@ -115,12 +115,20 @@ const section = sectionLines.join('\n') + '\n'
 // Read existing CHANGELOG.md
 let changelog = readFileSync(changelogPath, 'utf-8')
 
-// Derive repo URL from git remote for link reference
-const remote = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
-const repoUrl = remote
-  .replace(/^ssh:\/\/git@/, 'https://')
-  .replace(/^git@([^:]+):/, 'https://$1/')
-  .replace(/\.git$/, '')
+// Derive repo URL from git remote for link reference. Never crash mid-run
+// after package.json/CHANGELOG were mutated: fall back to the canonical URL.
+let repoUrl = 'https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing'
+try {
+  const remote = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
+  if (remote) {
+    repoUrl = remote
+      .replace(/^ssh:\/\/git@/, 'https://')
+      .replace(/^git@([^:]+):/, 'https://$1/')
+      .replace(/\.git$/, '')
+  }
+} catch {
+  log('⚠ Could not read git remote origin — using default repo URL', YELLOW)
+}
 const linkRef = `[${newVersion}]: ${repoUrl}/src/tag/v${newVersion}`
 
 // Guard: version must not already exist in changelog
@@ -142,6 +150,17 @@ if (!changelog.includes(`[${newVersion}]:`)) {
 
 writeFileSync(changelogPath, changelog)
 log('✓ Updated CHANGELOG.md', GREEN)
+
+// 3. index.html — bump the ?v= cache-busting query on the css/js references
+// (idempotent: re-running with the same version leaves the file unchanged).
+const indexPath = 'index.html'
+const indexHtml = readFileSync(indexPath, 'utf-8')
+const bumpedHtml = indexHtml.replace(
+  /(\/assets\/(?:css\/main\.css|js\/main\.js))(?:\?v=[0-9]+\.[0-9]+\.[0-9]+)?/g,
+  `$1?v=${newVersion}`
+)
+writeFileSync(indexPath, bumpedHtml)
+log('✓ Updated index.html cache-busting (?v=)', GREEN)
 
 // --- Git operations ---
 log('\n→ Staging all changes...', YELLOW)
@@ -167,5 +186,5 @@ log('  Version bump complete!', GREEN)
 log(`  ${currentVersion} → ${newVersion}`, GREEN)
 log(`  Tag: v${newVersion}`, GREEN)
 log('══════════════════════════════════════', GREEN)
-log('  Reminder:  git push --tags origin main', YELLOW)
+log('  Reminder:  git push --follow-tags origin main', YELLOW)
 log('══════════════════════════════════════\n', GREEN)

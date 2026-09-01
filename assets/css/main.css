@@ -180,6 +180,18 @@ body::after {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
+/* iOS Safari downlevel: `background-attachment: fixed` is unsupported and
+   `position: fixed` overlays repaint on URL-bar show/hide. Fall back to a
+   scrolling mesh + absolute grain that still covers the full page height. */
+@supports not (background-attachment: fixed) {
+  body {
+    background-attachment: scroll;
+  }
+  body::after {
+    position: absolute;
+  }
+}
+
 .container {
   width: min(1120px, 92vw);
   margin-inline: auto;
@@ -442,7 +454,9 @@ a:hover {
 
 .sha-copy {
   flex-shrink: 0;
-  padding: 0.3rem 0.7rem;
+  /* >= 24px tap target (WCAG 2.5.8): 0.45rem vertical padding + 0.78rem text */
+  padding: 0.45rem 0.8rem;
+  min-height: 24px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: transparent;
@@ -458,9 +472,9 @@ a:hover {
   color: var(--ink);
 }
 
-.sha-copy[aria-pressed='true'] {
-  background: var(--gold);
-  color: var(--ink);
+.sha-copy:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .qr-card {

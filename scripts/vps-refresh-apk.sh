@@ -11,7 +11,9 @@ set -euo pipefail
 # and once after each deploy by the release workflow.
 #
 # Sources are tried IN ORDER; the first fully-successful one wins. If none
-# succeeds the script exits 1 and leaves the previous state untouched.
+# succeeds the script exits 1 and leaves the previous state untouched. If the
+# already-served version matches the latest release, the script exits 0 early
+# without re-downloading the ~30MB archive.
 # =============================================================================
 
 # --- Configuration (override via env) ---
@@ -20,8 +22,8 @@ KEEP_VERSIONS="${KEEP_VERSIONS:-3}"
 TOKEN_DIR="${TOKEN_DIR:-/slovo/landing/tokens}"
 TIMEOUT="${TIMEOUT:-120}"
 
-FORGEJO_API="https://git.lightnode.ru/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/releases/latest"
-GITHUB_API="https://api.github.com/repos/Slovo-Propovedi/slovo-propovedi-mobile/releases/latest"
+FORGEJO_API="${FORGEJO_API:-https://git.lightnode.ru/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/releases/latest}"
+GITHUB_API="${GITHUB_API:-https://api.github.com/repos/Slovo-Propovedi/slovo-propovedi-mobile/releases/latest}"
 
 # --- Concurrency guard (single refresh at a time) ---
 mkdir -p "$APK_DIR"
@@ -29,9 +31,11 @@ exec 9>"$APK_DIR/.refresh.lock"
 flock -n 9 || { echo "another refresh is running"; exit 0; }
 
 # --- Stale temp cleanup + temp workspace ---
+# NOTE: WORKDIR (not TMPDIR) to avoid shadowing the env var of the same name
+# which some tools (e.g. mktemp) honour.
 rm -f "$APK_DIR"/.tmp-* 2>/dev/null || true
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
 
 # --- Prerequisites (idempotent) ---
 NEED_INSTALL=0
@@ -156,8 +160,22 @@ process_source() {
 
   local version="${tag#v}"
 
+  # --- early no-op: already serving this version? ---
+  # Mobile releases are tag-driven: a given version is published exactly once
+  # and never re-published, so version equality alone proves the served APK is
+  # the latest. (The post-download sha256 deep check below still catches the
+  # case where versions differ but content is identical, avoiding republish
+  # churn.) This avoids re-downloading the ~30MB zip on every timer run.
+  local current_version
+  current_version="$(jq -r '.version // empty' "$APK_DIR/latest.json" 2>/dev/null || true)"
+  if [ -n "$current_version" ] && [ "$current_version" = "$version" ] \
+     && [ -f "$APK_DIR/slovo-propovedi-v$version.apk" ]; then
+    echo ">> Up to date (v$version already served); nothing to do"
+    exit 0
+  fi
+
   # --- download + verify size ---
-  local download_file="$TMPDIR/release.zip"
+  local download_file="$WORKDIR/release.zip"
   echo "  [$name] downloading $asset_name..."
   if ! curl -fsSL --max-time "$TIMEOUT" -o "$download_file" "$asset_url" 2>/dev/null; then
     echo "  [$name] download failed"
@@ -173,7 +191,7 @@ process_source() {
   fi
 
   # --- unzip into empty subdir (zip-slip safe) ---
-  local exdir="$TMPDIR/extract"
+  local exdir="$WORKDIR/extract"
   mkdir -p "$exdir"
   if ! unzip -q "$download_file" -d "$exdir"; then
     echo "  [$name] unzip failed"
@@ -218,7 +236,7 @@ else
   exit 1
 fi
 
-# --- SHA-256 + no-op fast path ---
+# --- SHA-256 deep check (versions differ but content may be identical) ---
 echo ">> Verifying SHA-256..."
 SHA256="$(sha256sum "$APK_SOURCE_FILE" | awk '{print $1}')"
 
@@ -255,6 +273,7 @@ chmod 0644 "$APK_DIR/latest.json"
 
 # --- Cleanup old versions (only after full success) ---
 echo ">> Pruning old versions (keeping newest $KEEP_VERSIONS)..."
+# shellcheck disable=SC2012 # filenames are script-controlled (slovo-propovedi-vX.Y.Z.apk); ls|sort -V is the version-sort idiom
 mapfile -t to_delete < <(ls "$APK_DIR"/*.apk 2>/dev/null | sort -V | head -n -"$KEEP_VERSIONS")
 for f in "${to_delete[@]}"; do
   rm -f "$f"
@@ -262,7 +281,9 @@ for f in "${to_delete[@]}"; do
 done
 rm -f "$APK_DIR"/.tmp-* 2>/dev/null || true
 
-# --- Ownership ---
-chown -R slovo:slovo "$APK_DIR"
+# --- Ownership (only meaningful when running as root; sandbox runs skip it) ---
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R slovo:slovo "$APK_DIR"
+fi
 
 echo ">> Done: v$RELEASE_VERSION installed ($target_name)"

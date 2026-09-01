@@ -5,14 +5,14 @@
 //
 // Checks:
 //   1. index.html — lang="ru", required element ids, forgejo releases fallback
-//      link, and no external RESOURCE references (src / <link> href). Navigation
-//      <a href> links are allowed; only resource-loading attributes are checked
-//      so the page stays 100% self-contained (no CDN). og: meta uses `content`,
-//      so it is naturally exempt.
+//      link, no external RESOURCE references, cache-busting ?v= matching
+//      package.json, og:image + twitter:card meta.
 //   2. assets/js/main.js exists and references latest.json.
-//   3. QR + favicon exist; fonts dir has >= 8 .woff2.
-//   4. nginx.conf — APK MIME, caching, JSON, hidden-file deny, and the security
-//      headers REPEATED inside the /apk/ location (add_header inheritance fix).
+//   3. QR + favicon + og.png exist (og.png verified as PNG by magic bytes);
+//      fonts dir has >= 8 .woff2.
+//   4. nginx.conf — APK MIME, caching, JSON, hidden-file deny FIRST, the
+//      security headers REPEATED inside every add_header location, and the
+//      four CSP strings byte-identical with form-action 'none'.
 //   5. CHANGELOG.md has a section for the current package.json version.
 //   6. package-lock.json exists and its version matches package.json.
 
@@ -26,6 +26,26 @@ const bad = (msg) => {
 }
 
 const read = (path) => readFileSync(path, 'utf-8')
+
+const SECURITY_HEADERS = [
+  'X-Frame-Options',
+  'X-Content-Type-Options',
+  'Referrer-Policy',
+  'Permissions-Policy',
+  'Content-Security-Policy',
+]
+
+// Returns null when the location body repeats the full security-header set,
+// otherwise a human-readable reason (add_header inheritance fix: nginx does
+// not inherit server-level add_header into a location that defines its own).
+function requiresHeaders(locationBody) {
+  for (const header of SECURITY_HEADERS) {
+    if (!locationBody.includes(header)) {
+      return `missing security header ${header} (add_header inheritance fix)`
+    }
+  }
+  return null
+}
 
 // --- 1. index.html ---
 if (!existsSync('index.html')) {
@@ -51,6 +71,20 @@ if (!existsSync('index.html')) {
   if (external.length > 0) {
     bad(`index.html: external resource link(s) found: ${external.join(', ')}`)
   }
+
+  // og:image must be an absolute https URL pointing at the committed og.png
+  const ogImage = html.match(/<meta property="og:image" content="([^"]+)">/)
+  if (!ogImage) {
+    bad('index.html: missing og:image meta')
+  } else if (!/^https:\/\/slovo-propovedi\.ru\/assets\/img\/og\.png$/.test(ogImage[1])) {
+    bad(`index.html: og:image must be an absolute https URL to /assets/img/og.png, got "${ogImage[1]}"`)
+  }
+  if (!/<meta property="og:image:width" content="1200">/.test(html)) bad('index.html: missing og:image:width 1200')
+  if (!/<meta property="og:image:height" content="630">/.test(html)) bad('index.html: missing og:image:height 630')
+  if (!/<meta property="og:image:alt"/.test(html)) bad('index.html: missing og:image:alt')
+  if (!/<meta name="twitter:card" content="summary_large_image">/.test(html)) {
+    bad('index.html: missing twitter:card summary_large_image')
+  }
 }
 
 // --- 2. main.js ---
@@ -63,6 +97,14 @@ if (!existsSync('assets/js/main.js')) {
 // --- 3. images + fonts ---
 for (const file of ['assets/img/qr.svg', 'assets/img/favicon.svg']) {
   if (!existsSync(file)) bad(`${file} missing`)
+}
+if (!existsSync('assets/img/og.png')) {
+  bad('assets/img/og.png missing')
+} else {
+  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+  const head = readFileSync('assets/img/og.png').subarray(0, 8)
+  const isPng = Buffer.compare(head, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) === 0
+  if (!isPng) bad('assets/img/og.png: not a PNG (magic bytes mismatch)')
 }
 const woff2 = existsSync('assets/fonts')
   ? readdirSync('assets/fonts').filter((f) => f.endsWith('.woff2'))
@@ -85,29 +127,54 @@ if (!existsSync('nginx.conf')) {
     if (!nginx.includes(needle)) bad(`nginx.conf: missing "${needle}"`)
   }
 
+  // Extract every location block (closing brace at 4-space indent).
+  const locations = [...nginx.matchAll(/location\s+([^{]+)\{([\s\S]*?)\n    \}/g)].map((m) => ({
+    selector: m[1].trim(),
+    body: m[2],
+  }))
+  if (locations.length === 0) bad('nginx.conf: no location blocks found')
+
   // add_header inheritance fix: the full security header set must be REPEATED
-  // inside the /apk/ location block (nginx does not inherit add_header from the
-  // server level once a location defines its own add_header).
-  const apkLoc = nginx.match(/location ~\* \^\/apk\/\.\+\\.apk\$ \{([\s\S]*?)\n    \}/)
-  if (!apkLoc) {
-    bad('nginx.conf: /apk/ location block not found')
+  // inside every location that declares its own add_header.
+  const headerLocations = locations.filter((loc) => loc.body.includes('add_header'))
+  if (headerLocations.length < 3) {
+    bad(`nginx.conf: expected >= 3 locations with add_header, found ${headerLocations.length}`)
+  }
+  for (const loc of headerLocations) {
+    const reason = requiresHeaders(loc.body)
+    if (reason) bad(`nginx.conf: location ${loc.selector} ${reason}`)
+  }
+
+  // The four CSP strings (server level + the three repeating locations) must
+  // be byte-identical and hardened with form-action 'none'.
+  const cspStrings = [...nginx.matchAll(/add_header Content-Security-Policy "([^"]+)"/g)].map((m) => m[1])
+  if (cspStrings.length !== 4) {
+    bad(`nginx.conf: expected exactly 4 CSP strings (server + 3 locations), found ${cspStrings.length}`)
   } else {
-    const body = apkLoc[1]
-    for (const header of [
-      'X-Frame-Options',
-      'X-Content-Type-Options',
-      'Referrer-Policy',
-      'Permissions-Policy',
-      'Content-Security-Policy',
-    ]) {
-      if (!body.includes(header)) {
-        bad(`nginx.conf: /apk/ location missing security header ${header} (add_header inheritance fix)`)
-      }
+    const [first, ...rest] = cspStrings
+    if (rest.some((csp) => csp !== first)) {
+      bad('nginx.conf: CSP strings are not byte-identical across server + locations')
     }
+    if (!first.includes("form-action 'none'")) {
+      bad("nginx.conf: CSP missing form-action 'none'")
+    }
+  }
+
+  // Dotfile-deny must be the FIRST regex location so /apk/.tmp-*.apk and
+  // /assets/.secret.js are never served by later-declared regexes.
+  const denyIndex = nginx.indexOf('location ~ /\\.')
+  const apkIndex = nginx.indexOf('location ~* ^/apk/')
+  const assetIndex = nginx.indexOf('location ~* \\.(?:js|css|png|svg|ico|woff2)')
+  if (denyIndex === -1) {
+    bad('nginx.conf: dotfile-deny location (~ /\\.) not found')
+  } else if (apkIndex === -1 || assetIndex === -1) {
+    bad('nginx.conf: apk or asset regex location not found')
+  } else if (denyIndex > apkIndex || denyIndex > assetIndex) {
+    bad('nginx.conf: dotfile-deny location must appear BEFORE the apk and asset regex locations')
   }
 }
 
-// --- 5 + 6. version consistency ---
+// --- 5 + 6. version consistency + cache-busting ---
 if (!existsSync('package.json')) {
   bad('package.json missing')
 } else {
@@ -125,6 +192,19 @@ if (!existsSync('package.json')) {
     const lock = JSON.parse(read('package-lock.json'))
     if (lock.version !== pkg.version) {
       bad(`package-lock.json: version ${lock.version} != package.json ${pkg.version}`)
+    }
+  }
+
+  // Cache-busting: index.html must reference css/js with ?v=<package version>
+  if (existsSync('index.html')) {
+    const html = read('index.html')
+    for (const asset of ['/assets/css/main.css', '/assets/js/main.js']) {
+      const ref = html.match(new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\?v=([0-9]+\\.[0-9]+\\.[0-9]+)`))
+      if (!ref) {
+        bad(`index.html: missing cache-busting ?v= on ${asset}`)
+      } else if (ref[1] !== pkg.version) {
+        bad(`index.html: ${asset} ?v=${ref[1]} != package.json version ${pkg.version}`)
+      }
     }
   }
 }

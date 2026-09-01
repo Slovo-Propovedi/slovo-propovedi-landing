@@ -6,7 +6,8 @@
     "prepare": "husky",
     "validate": "node scripts/validate.mjs",
     "bump-version": "node scripts/bump-version.mjs",
-    "generate-qr": "node scripts/generate-qr.mjs"
+    "generate-qr": "node scripts/generate-qr.mjs",
+    "generate-og": "node scripts/generate-og.mjs"
   },
   "devDependencies": {
     "husky": "^9.1.7"

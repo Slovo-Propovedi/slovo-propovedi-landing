@@ -98,8 +98,10 @@ jobs:
             printf '%s' "${{ secrets.GITHUB_MIRROR_TOKEN }}" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/github"
           fi
           # Refresh is best-effort: deployment must not fail if the APK source
-          # is down. Log output for diagnosis.
-          ssh "$SSH_TARGET" "systemctl start slovo-landing-refresh.service && sleep 5 && systemctl is-active slovo-landing-refresh.service || true; ls -la /slovo/landing/apk || true"
+          # is down. Log output for diagnosis. The unit is Type=oneshot, so
+          # `systemctl start` blocks until the refresh finishes; afterwards
+          # `is-active` would report inactive, so journalctl is the signal.
+          ssh "$SSH_TARGET" "systemctl start slovo-landing-refresh.service; journalctl -u slovo-landing-refresh.service -n 30 --no-pager || true"
 
       - name: Extract changelog section
         run: |
