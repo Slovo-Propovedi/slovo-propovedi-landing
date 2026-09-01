@@ -1,0 +1,8 @@
+# Keep the image lean: only the static site + nginx config are needed.
+node_modules
+.git
+.forgejo
+.husky
+scripts
+*.md
+test-apk

@@ -1,0 +1,14 @@
+{
+  "name": "slovo-propovedi-landing",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "validate": "node scripts/validate.mjs",
+    "bump-version": "node scripts/bump-version.mjs",
+    "generate-qr": "node scripts/generate-qr.mjs"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

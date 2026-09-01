@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# The APK files are served from /apk/ — allow crawlers to index the landing
+# page but there is nothing sensitive to hide.

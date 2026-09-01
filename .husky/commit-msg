@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+
+# Enforce conventional commits on every commit message.
+# A non-zero exit from the validator aborts the commit.
+
+set -e
+
+message_file="$1"
+
+# Read the commit message (strip comment lines and the signoff trailer)
+message=$(grep -v '^#' "$message_file" | grep -v '^Signed-off-by:' | sed '/^$/d' | head -n 1)
+
+# Conventional commit: type(scope)?: subject
+if ! printf '%s' "$message" | grep -Eq '^(feat|fix|refactor|test|docs|style|chore|build|ci|perf|revert)(\([a-z0-9._-]+\))?!?: .+'; then
+  echo "✗ Invalid commit message: '$message'" >&2
+  echo "  Expected conventional format: type(scope)?: subject" >&2
+  echo "  e.g. feat: add APK download section" >&2
+  exit 1
+fi
+
+# Enforce the 100-char subject limit
+if [ "${#message}" -gt 100 ]; then
+  echo "✗ Commit subject exceeds 100 characters (${#message})" >&2
+  exit 1
+fi

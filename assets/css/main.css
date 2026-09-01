@@ -1,0 +1,702 @@
+/* ==========================================================================
+   Слово.Проповеди — landing page styles
+   Theme: ink-navy + manuscript gold. Self-hosted Unbounded + Onest.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Typography — self-hosted, Cyrillic-capable, subset via unicode-range
+   -------------------------------------------------------------------------- */
+
+/* Unbounded — display / headings */
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/unbounded-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/unbounded-400-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/assets/fonts/unbounded-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/assets/fonts/unbounded-600-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/unbounded-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/unbounded-700-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+/* Onest — body text */
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/onest-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/onest-400-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/assets/fonts/onest-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/assets/fonts/onest-600-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/onest-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/onest-700-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+/* --------------------------------------------------------------------------
+   2. Color & theme — committed ink-navy + manuscript gold
+   -------------------------------------------------------------------------- */
+
+:root {
+  --ink: #141a2b;          /* deep ink-navy background */
+  --ink-2: #1b2338;        /* raised surface */
+  --ink-3: #232c45;        /* card surface */
+  --gold: #e8b45a;         /* warm manuscript gold accent */
+  --gold-soft: #f0c87e;    /* lighter gold for hovers */
+  --cream: #f6ecd4;        /* primary text — warm ivory */
+  --cream-dim: #c9c2ae;    /* secondary text */
+  --line: rgba(232, 180, 90, 0.28); /* thin gold rule */
+  --line-soft: rgba(246, 236, 212, 0.12);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --radius: 18px;
+  --font-display: 'Unbounded', Georgia, serif;
+  --font-body: 'Onest', Georgia, serif;
+}
+
+/* --------------------------------------------------------------------------
+   3. Base & atmosphere — layered radial mesh + grain
+   -------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--cream);
+  background-color: var(--ink);
+  /* Layered radial gradient mesh for depth */
+  background-image:
+    radial-gradient(60rem 40rem at 85% -10%, rgba(232, 180, 90, 0.16), transparent 60%),
+    radial-gradient(50rem 36rem at -10% 20%, rgba(64, 84, 140, 0.28), transparent 55%),
+    radial-gradient(40rem 30rem at 60% 110%, rgba(232, 180, 90, 0.08), transparent 60%);
+  background-attachment: fixed;
+  /* Grain overlay via tiny SVG data-URI (allowed by CSP img-src data:) */
+  position: relative;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.container {
+  width: min(1120px, 92vw);
+  margin-inline: auto;
+  position: relative;
+  z-index: 1;
+}
+
+a {
+  color: var(--gold);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--gold-soft);
+}
+
+/* Accessible focus ring */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 1.25rem;
+  background: var(--gold);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+/* --------------------------------------------------------------------------
+   4. Header
+   -------------------------------------------------------------------------- */
+
+.site-header {
+  border-bottom: 1px solid var(--line-soft);
+  position: relative;
+  z-index: 2;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-block: 1.25rem;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--cream);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.wordmark-mark {
+  color: var(--gold);
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.header-nav {
+  display: flex;
+  gap: 1.75rem;
+  font-size: 0.95rem;
+}
+
+.header-nav a {
+  color: var(--cream-dim);
+}
+
+.header-nav a:hover {
+  color: var(--gold);
+}
+
+/* --------------------------------------------------------------------------
+   5. Hero — asymmetric composition, oversized display type
+   -------------------------------------------------------------------------- */
+
+.hero {
+  padding-block: clamp(4rem, 10vw, 7.5rem) clamp(4rem, 8vw, 6rem);
+  position: relative;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 0.85fr;
+  gap: clamp(2.5rem, 6vw, 5rem);
+  align-items: start;
+}
+
+.hero-eyebrow {
+  margin: 0 0 1.25rem;
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.hero-title {
+  margin: 0 0 1.5rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.4rem, 6vw, 4.4rem);
+  line-height: 1.06;
+  letter-spacing: -0.01em;
+  /* Grid-breaking oversized display type */
+  max-width: 12ch;
+}
+
+.hero-title-accent {
+  display: block;
+  color: var(--gold);
+}
+
+.hero-sub {
+  margin: 0 0 2.25rem;
+  max-width: 46ch;
+  color: var(--cream-dim);
+  font-size: 1.15rem;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.95rem 1.9rem;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--gold), #d99a3d);
+  color: var(--ink);
+  box-shadow: 0 10px 30px rgba(232, 180, 90, 0.28);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--gold-soft), var(--gold));
+  color: var(--ink);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px rgba(232, 180, 90, 0.4);
+}
+
+.btn-ghost {
+  border-color: var(--line);
+  color: var(--cream);
+  background: transparent;
+}
+
+.btn-ghost:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  transform: translateY(-2px);
+}
+
+.hero-note {
+  margin: 1.25rem 0 0;
+  font-size: 0.9rem;
+  color: var(--gold-soft);
+}
+
+/* --- Hero side: metadata + QR (offset, grid-breaking) --- */
+
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  /* Offset the side column so it breaks the grid rhythm */
+  transform: translateY(2rem);
+}
+
+.meta-card {
+  background: linear-gradient(160deg, var(--ink-3), var(--ink-2));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  box-shadow: var(--shadow);
+}
+
+.meta-card-title {
+  margin: 0 0 1.25rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+
+.meta-list {
+  margin: 0;
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.55rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 0.95rem;
+}
+
+.meta-row:last-child {
+  border-bottom: 0;
+}
+
+.meta-row dt {
+  color: var(--cream-dim);
+}
+
+.meta-row dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+.sha-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
+#meta-sha256 {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  max-width: 15ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cream);
+}
+
+.sha-copy {
+  flex-shrink: 0;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gold);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.sha-copy:hover {
+  background: var(--gold);
+  color: var(--ink);
+}
+
+.sha-copy[aria-pressed='true'] {
+  background: var(--gold);
+  color: var(--ink);
+}
+
+.qr-card {
+  align-self: flex-end;
+  background: var(--cream);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  text-align: center;
+  box-shadow: var(--shadow);
+  /* Rotate slightly for a hand-placed, manuscript feel */
+  transform: rotate(1.5deg);
+  max-width: 220px;
+}
+
+.qr-img {
+  display: block;
+  width: 160px;
+  height: 160px;
+  margin-inline: auto;
+}
+
+.qr-caption {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   6. Sections — features & install
+   -------------------------------------------------------------------------- */
+
+.features,
+.install {
+  padding-block: clamp(3.5rem, 7vw, 5.5rem);
+  border-top: 1px solid var(--line-soft);
+}
+
+.section-eyebrow {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.section-title {
+  margin: 0 0 2.5rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  line-height: 1.15;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+
+.feature-card {
+  background: linear-gradient(160deg, var(--ink-3), var(--ink-2));
+  border: 1px solid var(--line-soft);
+  border-top: 2px solid var(--gold);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--line);
+}
+
+.feature-title {
+  margin: 0 0 0.6rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+.feature-text {
+  margin: 0;
+  color: var(--cream-dim);
+  font-size: 0.98rem;
+}
+
+.install-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 1.25rem;
+  max-width: 720px;
+}
+
+.install-step {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.step-num {
+  flex-shrink: 0;
+  width: 2.4rem;
+  height: 2.4rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.install-step p {
+  margin: 0;
+  padding-top: 0.35rem;
+  color: var(--cream-dim);
+}
+
+.install-note {
+  margin: 2rem 0 0;
+  max-width: 720px;
+  padding: 1.25rem 1.5rem;
+  border-left: 3px solid var(--gold);
+  background: rgba(232, 180, 90, 0.06);
+  color: var(--cream-dim);
+  font-size: 0.95rem;
+}
+
+/* --------------------------------------------------------------------------
+   7. Footer
+   -------------------------------------------------------------------------- */
+
+.site-footer {
+  border-top: 1px solid var(--line-soft);
+  padding-block: 2.5rem;
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.footer-brand {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--cream);
+}
+
+.footer-links {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.footer-legal {
+  margin: 0;
+  color: var(--cream-dim);
+  font-size: 0.85rem;
+}
+
+/* --------------------------------------------------------------------------
+   8. Motion — one orchestrated staggered hero reveal (CSS only)
+   -------------------------------------------------------------------------- */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  animation: reveal-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.reveal[data-reveal]:nth-child(1) { animation-delay: 0.05s; }
+.reveal[data-reveal]:nth-child(2) { animation-delay: 0.18s; }
+.reveal[data-reveal]:nth-child(3) { animation-delay: 0.31s; }
+.reveal[data-reveal]:nth-child(4) { animation-delay: 0.44s; }
+.reveal[data-reveal]:nth-child(5) { animation-delay: 0.57s; }
+
+@keyframes reveal-up {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+  .btn,
+  .feature-card,
+  .qr-card {
+    transition: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   9. Responsive
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+  .hero-side {
+    transform: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .meta-card {
+    flex: 1 1 100%;
+  }
+  .qr-card {
+    /* Hidden on small screens per spec — QR is a desktop convenience */
+    display: none;
+  }
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+  .header-nav {
+    display: none;
+  }
+}
