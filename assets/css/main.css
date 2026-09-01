@@ -357,12 +357,11 @@ a:hover {
 }
 
 .wordmark-mark {
-  color: var(--accent);
   display: inline-flex;
   align-items: center;
 }
 
-.wordmark-mark svg {
+.wordmark-mark img {
   display: block;
 }
 

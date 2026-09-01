@@ -8,8 +8,8 @@
 //      link, no external RESOURCE references, cache-busting ?v= matching
 //      package.json, og:image + twitter:card meta.
 //   2. assets/js/main.js exists and references latest.json.
-//   3. QR + favicon + og.png exist (og.png verified as PNG by magic bytes);
-//      fonts dir has >= 8 .woff2.
+//   3. QR + icon + og.png exist (icon.png and og.png verified as PNG by magic
+//      bytes); fonts dir has >= 8 .woff2.
 //   4. nginx.conf — APK MIME, caching, JSON, hidden-file deny FIRST, the
 //      security headers REPEATED inside every add_header location, the six
 //      CSP strings byte-identical with form-action 'none', and the screenshots
@@ -99,8 +99,16 @@ if (!existsSync('assets/js/main.js')) {
 }
 
 // --- 3. images + fonts ---
-for (const file of ['assets/img/qr.svg', 'assets/img/favicon.svg']) {
+for (const file of ['assets/img/qr.svg', 'assets/img/icon.png']) {
   if (!existsSync(file)) bad(`${file} missing`)
+}
+if (!existsSync('assets/img/icon.png')) {
+  bad('assets/img/icon.png missing')
+} else {
+  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+  const head = readFileSync('assets/img/icon.png').subarray(0, 8)
+  const isPng = Buffer.compare(head, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) === 0
+  if (!isPng) bad('assets/img/icon.png: not a PNG (magic bytes mismatch)')
 }
 if (!existsSync('assets/img/og.png')) {
   bad('assets/img/og.png missing')
