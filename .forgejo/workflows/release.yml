@@ -68,7 +68,7 @@ jobs:
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
           DEPLOY_TAG: ${{ github.ref_name }}
           ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
-          LANDING_HOSTNAME: slovo-propovedi.ru
+          LANDING_HOSTNAME: ${{ vars.LANDING_HOSTNAME }}
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
           # Transfer source code (runner already has the tagged checkout).
