@@ -70,7 +70,7 @@ npm ci                           # установка зависимостей (
 npm run validate                 # проверка согласованности файлов (CI parity)
 npm run generate-qr              # пересоздать assets/img/qr.svg (DOMAIN-PINNED к https://slovo-propovedi.ru)
 npm run generate-og              # пересоздать assets/img/og.png (нужен rsvg-convert или ImageMagick)
-npm run dev                      # локальный просмотр на http://localhost:8377 (остановка Ctrl+C)
+npm run dev                      # локальный просмотр на http://localhost:8377 (Node, читает .env; остановка Ctrl+C)
 ```
 
 ## Процесс релиза

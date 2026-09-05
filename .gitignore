@@ -16,3 +16,6 @@ Thumbs.db
 
 # Local test artifacts (never commit)
 test-apk/
+
+# Local environment overrides (never commit)
+.env

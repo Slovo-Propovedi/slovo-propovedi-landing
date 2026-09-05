@@ -323,6 +323,32 @@ if (existsSync('scripts/vps-deploy.sh')) {
   }
 }
 
+// --- 9. Local dev server ---
+if (!existsSync('scripts/dev-server.mjs')) {
+  bad('scripts/dev-server.mjs missing')
+}
+
+if (existsSync('package.json')) {
+  const pkg = JSON.parse(read('package.json'))
+  if (!pkg.scripts || !pkg.scripts.dev || !pkg.scripts.dev.includes('dev-server.mjs')) {
+    bad('package.json: dev script must reference scripts/dev-server.mjs')
+  }
+}
+
+if (!existsSync('.env.example')) {
+  bad('.env.example missing')
+} else {
+  const example = read('.env.example')
+  if (!example.includes('WEB_HOSTNAME')) bad('.env.example: missing WEB_HOSTNAME')
+  if (!example.includes('LANDING_HOSTNAME')) bad('.env.example: missing LANDING_HOSTNAME')
+}
+
+if (!existsSync('.gitignore')) {
+  bad('.gitignore missing')
+} else if (!/^\.env$/m.test(read('.gitignore'))) {
+  bad('.gitignore: missing .env entry')
+}
+
 if (failures.length > 0) {
   console.error(`\nValidation failed (${failures.length} issue(s))`)
   process.exit(1)

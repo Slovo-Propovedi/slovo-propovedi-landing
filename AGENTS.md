@@ -31,6 +31,8 @@ assets/
 scripts/
   bump-version.mjs    # Version bump: package.json + package-lock.json + CHANGELOG.md
                       #   + index.html ?v= cache-busting, commit -s, tag
+  dev-server.mjs      # Zero-dependency Node dev server: .env support,
+                      #   __LANDING_HOSTNAME__ substitution, /web 302
   generate-qr.mjs     # Regenerates assets/img/qr.svg via npx qrcode
   generate-og.mjs     # Regenerates assets/img/og.png (rsvg-convert/ImageMagick)
   validate.mjs        # Consistency checks (extended: nginx headers, CSP, og:image)
@@ -69,7 +71,11 @@ npm run generate-qr
 # Regenerate the social-card image (needs rsvg-convert or ImageMagick)
 npm run generate-og
 
-# Local preview server (port 8377, Ctrl+C to stop)
+# Local preview server (port 8377, Ctrl+C to stop). Node, zero deps:
+# reads .env (see .env.example; precedence: env > .env > defaults),
+# substitutes __LANDING_HOSTNAME__ into index.html on the fly, answers
+# /web with the same 302 as prod, and serves only the files the
+# production image contains.
 npm run dev
 
 # Build and run the image locally
