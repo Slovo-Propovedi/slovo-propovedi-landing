@@ -545,6 +545,19 @@ a:hover {
   font-size: 0.9rem;
 }
 
+/* Web-app fallback — quiet alternative to the APK download. Dim text keeps it
+   secondary to the primary CTA; the link keeps the brand accent (global `a`)
+   and gains an underline on hover for affordance. Tokens handle both themes. */
+.hero-alt {
+  margin: 1.25rem 0 0;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+
+.hero-alt a:hover {
+  text-decoration: underline;
+}
+
 /* --- Hero side: metadata + QR (offset, grid-breaking) --- */
 
 .hero-side {

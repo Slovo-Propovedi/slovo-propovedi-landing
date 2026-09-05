@@ -37,6 +37,15 @@ TRAEFIK_SERVICE="${TRAEFIK_SERVICE:-slovo-traefik.service}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 TRAEFIK_IMAGE="${TRAEFIK_IMAGE:-traefik:v3.4}"
 TRAEFIK_BASE_PATH="${TRAEFIK_BASE_PATH:-/slovo/traefik}"
+# Web-app URL for the /web 302 redirect. Baked into the image via --build-arg;
+# it is sed-ed into nginx.conf, so spaces/quotes/semicolons are forbidden.
+WEB_APP_URL="${WEB_APP_URL:-https://app.slovo-propovedi.ru}"
+# LC_ALL=C keeps the [!-~] range ASCII-deterministic: in ru_RU.UTF-8 the
+# collation range would not span letters and every valid URL would be rejected.
+if ! (export LC_ALL=C; [[ "$WEB_APP_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[!-~]*)?$ ]]); then
+  echo "ERROR: WEB_APP_URL must be a valid https URL (no spaces/quotes/semicolons): $WEB_APP_URL"
+  exit 1
+fi
 
 # --- Banner ---
 echo "==============================================================="
@@ -261,6 +270,7 @@ docker buildx build \
   --builder="$BUILDER_NAME" \
   --load \
   --tag="$IMAGE_NAME" \
+  --build-arg WEB_APP_URL="$WEB_APP_URL" \
   "$SRC_PATH"
 
 # --- 6. Write systemd unit ---

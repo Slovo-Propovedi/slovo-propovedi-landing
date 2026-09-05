@@ -245,6 +245,47 @@ if (html) {
   }
 }
 
+// --- 8. Web-app fallback (/web redirect) ---
+// WEB_APP_URL is baked into nginx.conf at image build (Dockerfile sed), so the
+// placeholder must appear exactly once there and the deploy script must wire
+// the build-arg + validation guard. index.html links to the RELATIVE /web.
+if (existsSync('nginx.conf')) {
+  const nginx = read('nginx.conf')
+  const placeholderCount = (nginx.match(/__WEB_APP_URL__/g) || []).length
+  if (placeholderCount !== 1) {
+    bad(`nginx.conf: expected exactly 1 __WEB_APP_URL__ placeholder, found ${placeholderCount}`)
+  }
+  if (!/location = \/web \{[\s\S]*?return 302 __WEB_APP_URL__;/.test(nginx)) {
+    bad('nginx.conf: /web location must return 302 to __WEB_APP_URL__')
+  }
+}
+
+if (!existsSync('Dockerfile')) {
+  bad('Dockerfile missing')
+} else {
+  const dockerfile = read('Dockerfile')
+  if (!/ARG WEB_APP_URL=https:\/\/app\.slovo-propovedi\.ru/.test(dockerfile)) {
+    bad('Dockerfile: missing ARG WEB_APP_URL default')
+  }
+  if (!/RUN sed -i "s\|__WEB_APP_URL__\|\$\{WEB_APP_URL\}\|g"/.test(dockerfile)) {
+    bad('Dockerfile: missing sed RUN replacing __WEB_APP_URL__')
+  }
+}
+
+if (html && !/<a[^>]*href="\/web"/.test(html)) {
+  bad('index.html: missing href="/web" link')
+}
+
+if (existsSync('scripts/vps-deploy.sh')) {
+  const deploy = read('scripts/vps-deploy.sh')
+  if (!deploy.includes('--build-arg WEB_APP_URL=')) {
+    bad('scripts/vps-deploy.sh: missing --build-arg WEB_APP_URL=')
+  }
+  if (!/=~ \^https:\/\//.test(deploy)) {
+    bad('scripts/vps-deploy.sh: missing WEB_APP_URL validation guard')
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\nValidation failed (${failures.length} issue(s))`)
   process.exit(1)

@@ -5,7 +5,8 @@ Coding agent instructions for the **slovo-propovedi-landing** static site.
 ## Purpose
 
 This repo is the landing page for the «Слово.Проповеди» Android app
-(`ru.slovopropovedi`). It offers a direct APK download. It is a **fully static
+(`ru.slovopropovedi`). It offers a direct APK download plus a web-version
+fallback link (`/web`, a 302 redirect to the web app). It is a **fully static
 site**: an `nginx:alpine` container serves `index.html` + assets on port 8080,
 behind Traefik at `https://slovo-propovedi.ru`.
 
@@ -135,6 +136,23 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
 - The refresh timer/units are installed by `vps-deploy.sh` and survive deploys
   (the script is copied into `$BASE_PATH`).
 
+## Web-app fallback (`/web`)
+
+- The landing links to the **relative** path `/web` (never the absolute URL).
+  nginx answers it with a `302` redirect to the web app.
+- The target URL comes from `WEB_APP_URL` (Forgejo repo variable, optional).
+  Flow: release.yml env → SSH inline env → `vps-deploy.sh` (validates against
+  `^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[!-~]*)?$`, defaults to
+  `https://app.slovo-propovedi.ru`) → `--build-arg WEB_APP_URL=...` →
+  Dockerfile `sed` replaces the `__WEB_APP_URL__` placeholder in nginx.conf at
+  image build → nginx serves `location = /web { return 302 <url>; }`.
+- The URL is baked at **build time** because the container rootfs is read-only
+  in production — runtime templating is not an option. `vps-deploy.sh` rebuilds
+  the image on every deploy, so a changed variable takes effect on the next
+  release.
+- `302` (not `301`) is deliberate: browsers must not pin the redirect forever,
+  so a changed `WEB_APP_URL` applies immediately.
+
 ## Commit Convention
 
 Conventional commits (enforced by `.husky/commit-msg`):
@@ -190,3 +208,6 @@ Conventional commits (enforced by `.husky/commit-msg`):
    location and must stay byte-identical (validate.mjs enforces this).
 6. **The refresh script must never shadow `TMPDIR`** — it uses `WORKDIR` for its
    temp workspace so tools honouring the env var are not confused.
+7. **`__WEB_APP_URL__` in nginx.conf is replaced at image build** — never commit
+   a real URL there; keep `/web` links relative. The placeholder must appear
+   exactly once (validate.mjs enforces this).
