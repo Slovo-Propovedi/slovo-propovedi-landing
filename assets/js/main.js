@@ -90,8 +90,11 @@ function adjustCtaForPlatform() {
   btn.rel = 'noopener'
   btn.removeAttribute('download')
   btnLabel.textContent = 'Открыть веб-версию'
-  iconDl.hidden = true
-  iconWeb.hidden = false
+  // toggleAttribute (not the .hidden property): `hidden` as an IDL reflector
+  // lives on HTMLElement and is not inherited by SVG elements, so a plain
+  // assignment would never reach the attribute the CSS guard matches on.
+  iconDl.toggleAttribute('hidden', true)
+  iconWeb.toggleAttribute('hidden', false)
 
   // Alt line → APK download (swapped roles)
   altLead.textContent = 'Хотите установить приложение на Android?'
