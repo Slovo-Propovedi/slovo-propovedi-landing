@@ -6,13 +6,13 @@
 // The landing hostname comes from LANDING_HOSTNAME (default slovo-propovedi.ru);
 // the https:// prefix is added here.
 
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 
 const LANDING_HOSTNAME = process.env.LANDING_HOSTNAME || 'slovo-propovedi.ru'
 const URL = `https://${LANDING_HOSTNAME}`
 const OUT = 'assets/img/qr.svg'
 
-execSync(`npx --yes qrcode@1.5.4 -t svg -o ${OUT} "${URL}"`, { stdio: 'inherit' })
+execFileSync('npx', ['--yes', 'qrcode@1.5.4', '-t', 'svg', '-o', OUT, URL], { stdio: 'inherit' })
 
 // Re-theme the generated QR: background intentionally left white (matches the
 // --qr-bg token) + near-black modules for maximum scan contrast.

@@ -236,5 +236,6 @@ Conventional commits (enforced by `.husky/commit-msg`):
    broke the old `WEB_APP_URL` scheme (`& \ | ; " ' $`) unrepresentable.
    `vps-deploy.sh` validates both via `require_valid_hostname` (`LC_ALL=C`),
    and the Dockerfile re-guards + runs `nginx -t` so a bad value fails at BUILD
-   time, never at runtime. Defaults live in the Dockerfile ARG and the deploy
-   script; Forgejo vars are `WEB_HOSTNAME` and `LANDING_HOSTNAME`.
+   time, never at runtime. Defaults live in the Dockerfile ARGs (both vars); in the deploy
+   script `WEB_HOSTNAME` has a default and `LANDING_HOSTNAME` is required.
+   Forgejo vars are `WEB_HOSTNAME` and `LANDING_HOSTNAME`.

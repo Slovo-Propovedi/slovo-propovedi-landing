@@ -43,6 +43,8 @@ const MIME_TYPES = {
 // comments are skipped; values may be wrapped in matching quotes. A malformed
 // line fails fast with the file and line number.
 function parseDotenv(text, filePath) {
+  // Strip a leading UTF-8 BOM so Windows-authored .env files parse correctly.
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1)
   const vars = {}
   const lines = text.split('\n')
   for (let index = 0; index < lines.length; index++) {
