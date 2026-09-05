@@ -22,6 +22,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const FONTS_DIR = join(ROOT, 'assets', 'fonts')
 const OUT = join(ROOT, 'assets', 'img', 'og.png')
 
+// The landing hostname comes from LANDING_HOSTNAME (default slovo-propovedi.ru).
+const LANDING_HOSTNAME = process.env.LANDING_HOSTNAME || 'slovo-propovedi.ru'
+
 const WIDTH = 1200
 const HEIGHT = 630
 
@@ -59,7 +62,7 @@ const svg = `<?xml version="1.0" encoding="UTF-8"?>
   <text x="80" y="410" font-family="Onest" font-size="34" fill="#d4d4d4">Слушайте христианские проповеди на вашем устройстве</text>
 
   <!-- domain -->
-  <text x="80" y="480" font-family="Onest" font-weight="600" font-size="30" fill="#f16031">slovo-propovedi.ru</text>
+  <text x="80" y="480" font-family="Onest" font-weight="600" font-size="30" fill="#f16031">${LANDING_HOSTNAME}</text>
 
   <!-- QR motif (decorative, suggests the on-page QR) -->
   <g transform="translate(930, 400)">

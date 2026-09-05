@@ -3,10 +3,13 @@
 // Regenerates assets/img/qr.svg encoding the landing URL.
 // Uses `npx qrcode` (fetched on demand) so qrcode is NOT a project dependency.
 // Run: npm run generate-qr
+// The landing hostname comes from LANDING_HOSTNAME (default slovo-propovedi.ru);
+// the https:// prefix is added here.
 
 import { execSync } from 'node:child_process'
 
-const URL = 'https://slovo-propovedi.ru'
+const LANDING_HOSTNAME = process.env.LANDING_HOSTNAME || 'slovo-propovedi.ru'
+const URL = `https://${LANDING_HOSTNAME}`
 const OUT = 'assets/img/qr.svg'
 
 execSync(`npx --yes qrcode@1.5.4 -t svg -o ${OUT} "${URL}"`, { stdio: 'inherit' })

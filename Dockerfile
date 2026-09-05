@@ -13,27 +13,38 @@ LABEL org.opencontainers.image.title="slovo-propovedi-landing" \
 # the image. Docker creates the mountpoint automatically when the bind mount is
 # attached, so no placeholder dir is needed here.
 
-# Web-app URL baked at build time; overridable per-deploy via --build-arg.
+# Hostnames baked at build time; overridable per-deploy via --build-arg.
 # The container rootfs is read-only in production, so runtime templating is not
-# an option — the value is sed-ed into nginx.conf below.
-ARG WEB_APP_URL=https://app.slovo-propovedi.ru
+# an option — the values are sed-ed into nginx.conf + index.html below.
+# WEB_HOSTNAME feeds the /web 302 (https:// is prepended at bake time);
+# LANDING_HOSTNAME feeds the og:url/og:image canonical URLs.
+ARG WEB_HOSTNAME=app.slovo-propovedi.ru
+ARG LANDING_HOSTNAME=slovo-propovedi.ru
 
 COPY index.html robots.txt /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# A direct `docker build --build-arg WEB_APP_URL=<bad>` bypasses the deploy-script
-# guard, so re-guard the metacharacters here: each corrupts sed/nginx silently
-# (see vps-deploy.sh for the per-class WHY).
-RUN case "$WEB_APP_URL" in \
-    *[\'\"\;\&\|\$\\]* ) echo "ERROR: WEB_APP_URL contains a forbidden character (one of: & | \\ ; \" ' \$): $WEB_APP_URL" >&2; exit 1 ;; \
-    esac
+# Guard: both ARGs must be a bare hostname — no protocol/scheme, no path, no
+# trailing slash, no port. The bare-hostname charset makes the metacharacters
+# that used to break sed/nginx (`& \ | ; " ' $`) structurally unrepresentable,
+# so this single check replaces the old shape + metacharacter guards. An empty
+# value (which would otherwise bake an invalid https://) is rejected here too.
+RUN set -e; \
+    if [ -z "$WEB_HOSTNAME" ] || ! printf '%s' "$WEB_HOSTNAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$|^[A-Za-z0-9]$'; then \
+      echo "ERROR: WEB_HOSTNAME must be a bare hostname (no protocol/scheme, no path, no trailing slash, no port): '$WEB_HOSTNAME'" >&2; \
+      exit 1; \
+    fi; \
+    if [ -z "$LANDING_HOSTNAME" ] || ! printf '%s' "$LANDING_HOSTNAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$|^[A-Za-z0-9]$'; then \
+      echo "ERROR: LANDING_HOSTNAME must be a bare hostname (no protocol/scheme, no path, no trailing slash, no port): '$LANDING_HOSTNAME'" >&2; \
+      exit 1; \
+    fi
 
-# Replace the __WEB_APP_URL__ placeholder in nginx.conf with the baked URL.
-# `|` as the sed delimiter so the URL's `/` needs no escaping.
-# `nginx -t` turns any nginx-parse class failure (e.g. a stray `;`) into a BUILD
-# failure instead of a runtime outage after the container is recreated.
-RUN sed -i "s|__WEB_APP_URL__|${WEB_APP_URL}|g" /etc/nginx/conf.d/default.conf && nginx -t
+# Replace the hostname placeholders with the baked values.
+# `|` as the sed delimiter. `nginx -t` turns any nginx-parse failure into a
+# BUILD failure instead of a runtime outage after the container is recreated.
+RUN sed -i "s|__WEB_HOSTNAME__|${WEB_HOSTNAME}|g" /etc/nginx/conf.d/default.conf && nginx -t
+RUN sed -i "s|__LANDING_HOSTNAME__|${LANDING_HOSTNAME}|g" /usr/share/nginx/html/index.html
 
 EXPOSE 8080
 

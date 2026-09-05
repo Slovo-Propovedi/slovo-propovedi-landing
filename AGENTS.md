@@ -138,31 +138,35 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
 
 ## Web-app fallback (`/web`)
 
-- The landing links to the **relative** path `/web` (never the absolute URL).
-  nginx answers it with a `302` redirect to the web app.
-- The target URL comes from `WEB_APP_URL` (Forgejo repo variable, optional).
-  Flow: release.yml env → SSH inline env → `vps-deploy.sh` (validates against
-  `^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[!-~]*)?$`, defaults to
-  `https://app.slovo-propovedi.ru`) → `--build-arg WEB_APP_URL=...` →
-  Dockerfile `sed` replaces the `__WEB_APP_URL__` placeholder in nginx.conf at
-  image build → nginx serves `location = /web { return 302 <url>; }`.
-- The shape guard alone does NOT exclude metacharacters inside the `[!-~]` path
-  range, so a second guard in `vps-deploy.sh` (and again in the Dockerfile)
-  rejects them. Forbidden: `&` (sed whole-match replacement metachar) and `\`
-  (sed escape char) silently corrupt the baked URL; `|` collides with the sed
-  `s|…|…|` delimiter; `;` and `"` break nginx directive parsing (container dies
-  at START, after `ExecStartPre docker rm -f` → outage); `'` breaks the
-  release.yml SSH inline quoting upstream; `$` is kept out as defense-in-depth
-  against shell/sed edge cases.
-- The Dockerfile re-guards the ARG and then runs `nginx -t` after the sed, so a
-  bad `WEB_APP_URL` (even from a direct local `docker build --build-arg`, which
-  bypasses the deploy-script guard) fails loudly at BUILD time, never at runtime.
-- The URL is baked at **build time** because the container rootfs is read-only
-  in production — runtime templating is not an option. `vps-deploy.sh` rebuilds
-  the image on every deploy, so a changed variable takes effect on the next
-  release.
+- The landing links to the **relative** path `/web` (never the absolute URL),
+  opening in a new tab (`target="_blank" rel="noopener"`). nginx answers it
+  with a `302` redirect to the web app.
+- The target hostname comes from `WEB_HOSTNAME` (Forgejo repo variable,
+  optional). Flow: release.yml env → SSH inline env → `vps-deploy.sh`
+  (validates a bare hostname, defaults to `app.slovo-propovedi.ru`) →
+  `--build-arg WEB_HOSTNAME=...` → Dockerfile `sed` replaces the
+  `__WEB_HOSTNAME__` placeholder in nginx.conf at image build, with the
+  `https://` prefix added at bake time → nginx serves
+  `location = /web { return 302 https://<host>; }`.
+- `WEB_HOSTNAME` (and `LANDING_HOSTNAME`) are **hostname-only** by contract:
+  no protocol/scheme, no `://`, no path, no trailing slash, no port. The bare
+  hostname charset (`[A-Za-z0-9.-]`, no leading/trailing `-`/`.`) makes the
+  metacharacters that used to break sed/nginx — `& \ | ; " ' $` — structurally
+  unrepresentable, so the old separate metacharacter guard is subsumed.
+- Both hostnames are validated in `vps-deploy.sh` (`require_valid_hostname`,
+  `LC_ALL=C` so the ranges are ASCII-deterministic in ru_RU.UTF-8) and
+  re-guarded in the Dockerfile (empty/invalid value → BUILD failure), then
+  `nginx -t` runs after the sed so a bad baked value fails loudly at BUILD
+  time, never at runtime.
+- `LANDING_HOSTNAME` (Forgejo repo variable, still required for Traefik labels)
+  feeds the landing's own canonical URLs — `og:url`/`og:image` in index.html
+  via the `__LANDING_HOSTNAME__` placeholder, `https://` prepended at bake time.
+- The values are baked at **build time** because the container rootfs is
+  read-only in production — runtime templating is not an option.
+  `vps-deploy.sh` rebuilds the image on every deploy, so a changed variable
+  takes effect on the next release.
 - `302` (not `301`) is deliberate: browsers must not pin the redirect forever,
-  so a changed `WEB_APP_URL` applies immediately.
+  so a changed `WEB_HOSTNAME` applies immediately.
 
 ## Commit Convention
 
@@ -219,10 +223,12 @@ Conventional commits (enforced by `.husky/commit-msg`):
    location and must stay byte-identical (validate.mjs enforces this).
 6. **The refresh script must never shadow `TMPDIR`** — it uses `WORKDIR` for its
    temp workspace so tools honouring the env var are not confused.
-7. **`__WEB_APP_URL__` in nginx.conf is replaced at image build** — never commit
-   a real URL there; keep `/web` links relative. The placeholder must appear
-   exactly once (validate.mjs enforces this). Forbidden characters in
-   `WEB_APP_URL` — `& \ | ; " ' $` — each breaks a downstream stage (sed
-   replacement, sed delimiter, nginx parsing, or SSH quoting). `vps-deploy.sh`
-   rejects them, and the Dockerfile re-guards + runs `nginx -t` so a bad value
-   fails at BUILD time, never at runtime.
+7. **`__WEB_HOSTNAME__`/`__LANDING_HOSTNAME__` placeholders are replaced at
+   image build** — never commit a real hostname there; keep `/web` links
+   relative. Both are hostname-only by contract (no protocol, path, trailing
+   slash or port), and the bare-hostname charset makes the metacharacters that
+   broke the old `WEB_APP_URL` scheme (`& \ | ; " ' $`) unrepresentable.
+   `vps-deploy.sh` validates both via `require_valid_hostname` (`LC_ALL=C`),
+   and the Dockerfile re-guards + runs `nginx -t` so a bad value fails at BUILD
+   time, never at runtime. Defaults live in the Dockerfile ARG and the deploy
+   script; Forgejo vars are `WEB_HOSTNAME` and `LANDING_HOSTNAME`.

@@ -76,12 +76,13 @@ if (!html) {
     bad(`index.html: external resource link(s) found: ${external.join(', ')}`)
   }
 
-  // og:image must be an absolute https URL pointing at the committed og.png
+  // og:image must be an absolute https URL pointing at the committed og.png,
+  // using the __LANDING_HOSTNAME__ placeholder (baked at image build).
   const ogImage = html.match(/<meta property="og:image" content="([^"]+)">/)
   if (!ogImage) {
     bad('index.html: missing og:image meta')
-  } else if (!/^https:\/\/slovo-propovedi\.ru\/assets\/img\/og\.png$/.test(ogImage[1])) {
-    bad(`index.html: og:image must be an absolute https URL to /assets/img/og.png, got "${ogImage[1]}"`)
+  } else if (!/^https:\/\/__LANDING_HOSTNAME__\/assets\/img\/og\.png$/.test(ogImage[1])) {
+    bad(`index.html: og:image must be https://__LANDING_HOSTNAME__/assets/img/og.png, got "${ogImage[1]}"`)
   }
   if (!/<meta property="og:image:width" content="1200">/.test(html)) bad('index.html: missing og:image:width 1200')
   if (!/<meta property="og:image:height" content="630">/.test(html)) bad('index.html: missing og:image:height 630')
@@ -245,18 +246,23 @@ if (html) {
   }
 }
 
-// --- 8. Web-app fallback (/web redirect) ---
-// WEB_APP_URL is baked into nginx.conf at image build (Dockerfile sed), so the
-// placeholder must appear exactly once there and the deploy script must wire
-// the build-arg + validation guard. index.html links to the RELATIVE /web.
+// --- 8. Web-app fallback (/web redirect) + landing canonical URLs ---
+// WEB_HOSTNAME is baked into nginx.conf at image build (Dockerfile sed, with
+// https:// prepended); LANDING_HOSTNAME is baked into index.html's og:url and
+// og:image. index.html links to the RELATIVE /web and opens it in a new tab.
+// Both hostnames are validated as bare hostnames by vps-deploy.sh and
+// re-guarded in the Dockerfile.
 if (existsSync('nginx.conf')) {
   const nginx = read('nginx.conf')
-  const placeholderCount = (nginx.match(/__WEB_APP_URL__/g) || []).length
+  const placeholderCount = (nginx.match(/__WEB_HOSTNAME__/g) || []).length
   if (placeholderCount !== 1) {
-    bad(`nginx.conf: expected exactly 1 __WEB_APP_URL__ placeholder, found ${placeholderCount}`)
+    bad(`nginx.conf: expected exactly 1 __WEB_HOSTNAME__ placeholder, found ${placeholderCount}`)
   }
-  if (!/location = \/web \{[\s\S]*?return 302 __WEB_APP_URL__;/.test(nginx)) {
-    bad('nginx.conf: /web location must return 302 to __WEB_APP_URL__')
+  if (!/location = \/web \{[\s\S]*?return 302 https:\/\/__WEB_HOSTNAME__;/.test(nginx)) {
+    bad('nginx.conf: /web location must return 302 to https://__WEB_HOSTNAME__')
+  }
+  if (nginx.includes('WEB_APP_URL')) {
+    bad('nginx.conf: stale WEB_APP_URL reference remains')
   }
 }
 
@@ -264,31 +270,56 @@ if (!existsSync('Dockerfile')) {
   bad('Dockerfile missing')
 } else {
   const dockerfile = read('Dockerfile')
-  if (!/ARG WEB_APP_URL=https:\/\/app\.slovo-propovedi\.ru/.test(dockerfile)) {
-    bad('Dockerfile: missing ARG WEB_APP_URL default')
+  if (!/ARG WEB_HOSTNAME=app\.slovo-propovedi\.ru/.test(dockerfile)) {
+    bad('Dockerfile: missing ARG WEB_HOSTNAME default')
   }
-  if (!/RUN sed -i "s\|__WEB_APP_URL__\|\$\{WEB_APP_URL\}\|g"/.test(dockerfile)) {
-    bad('Dockerfile: missing sed RUN replacing __WEB_APP_URL__')
+  if (!/ARG LANDING_HOSTNAME=slovo-propovedi\.ru/.test(dockerfile)) {
+    bad('Dockerfile: missing ARG LANDING_HOSTNAME default')
+  }
+  if (!/RUN sed -i "s\|__WEB_HOSTNAME__\|\$\{WEB_HOSTNAME\}\|g" \/etc\/nginx\/conf\.d\/default\.conf && nginx -t/.test(dockerfile)) {
+    bad('Dockerfile: missing sed RUN replacing __WEB_HOSTNAME__ in nginx.conf with nginx -t')
+  }
+  if (!/RUN sed -i "s\|__LANDING_HOSTNAME__\|\$\{LANDING_HOSTNAME\}\|g" \/usr\/share\/nginx\/html\/index\.html/.test(dockerfile)) {
+    bad('Dockerfile: missing sed RUN replacing __LANDING_HOSTNAME__ in index.html')
   }
   if (!dockerfile.includes('nginx -t')) {
     bad('Dockerfile: missing build-time nginx -t config check')
   }
+  if (dockerfile.includes('WEB_APP_URL')) {
+    bad('Dockerfile: stale WEB_APP_URL reference remains')
+  }
 }
 
-if (html && !/<a[^>]*href="\/web"/.test(html)) {
-  bad('index.html: missing href="/web" link')
+if (html) {
+  const webLinks = [...html.matchAll(/<a\b[^>]*href="\/web"[^>]*>/g)].map((m) => m[0])
+  if (webLinks.length < 2) {
+    bad(`index.html: expected 2 href="/web" links, found ${webLinks.length}`)
+  }
+  for (const link of webLinks) {
+    if (!/\btarget="_blank"/.test(link)) bad('index.html: /web link missing target="_blank"')
+    if (!/\brel="noopener"/.test(link)) bad('index.html: /web link missing rel="noopener"')
+  }
+  if (/https:\/\/slovo-propovedi\.ru/.test(html)) {
+    bad('index.html: literal https://slovo-propovedi.ru URL remains (use __LANDING_HOSTNAME__ placeholder)')
+  }
 }
 
 if (existsSync('scripts/vps-deploy.sh')) {
   const deploy = read('scripts/vps-deploy.sh')
-  if (!deploy.includes('--build-arg WEB_APP_URL=')) {
-    bad('scripts/vps-deploy.sh: missing --build-arg WEB_APP_URL=')
+  if (!deploy.includes('require_valid_hostname WEB_HOSTNAME')) {
+    bad('scripts/vps-deploy.sh: missing require_valid_hostname invocation for WEB_HOSTNAME')
   }
-  if (!/=~ \^https:\/\//.test(deploy)) {
-    bad('scripts/vps-deploy.sh: missing WEB_APP_URL validation guard')
+  if (!deploy.includes('require_valid_hostname LANDING_HOSTNAME')) {
+    bad('scripts/vps-deploy.sh: missing require_valid_hostname invocation for LANDING_HOSTNAME')
   }
-  if (!deploy.includes('forbidden character')) {
-    bad('scripts/vps-deploy.sh: missing WEB_APP_URL metacharacter rejection guard')
+  if (!deploy.includes('--build-arg WEB_HOSTNAME=')) {
+    bad('scripts/vps-deploy.sh: missing --build-arg WEB_HOSTNAME=')
+  }
+  if (!deploy.includes('--build-arg LANDING_HOSTNAME=')) {
+    bad('scripts/vps-deploy.sh: missing --build-arg LANDING_HOSTNAME=')
+  }
+  if (deploy.includes('WEB_APP_URL')) {
+    bad('scripts/vps-deploy.sh: stale WEB_APP_URL reference remains')
   }
 }
 

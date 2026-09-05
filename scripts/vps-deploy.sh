@@ -37,30 +37,27 @@ TRAEFIK_SERVICE="${TRAEFIK_SERVICE:-slovo-traefik.service}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 TRAEFIK_IMAGE="${TRAEFIK_IMAGE:-traefik:v3.4}"
 TRAEFIK_BASE_PATH="${TRAEFIK_BASE_PATH:-/slovo/traefik}"
-# Web-app URL for the /web 302 redirect. Baked into the image via --build-arg;
-# it is sed-ed into nginx.conf, so the shape + metacharacter guards below are
-# the contract that keeps the baked URL valid for sed and nginx.
-WEB_APP_URL="${WEB_APP_URL:-https://app.slovo-propovedi.ru}"
-# LC_ALL=C keeps the [!-~] range ASCII-deterministic: in ru_RU.UTF-8 the
-# collation range would not span letters and every valid URL would be rejected.
-# This shape guard only enforces https://host[:port][/path]; the [!-~] path
-# range still admits metacharacters, which the second guard rejects below.
-if ! (export LC_ALL=C; [[ "$WEB_APP_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[!-~]*)?$ ]]); then
-  echo "ERROR: WEB_APP_URL must be an https URL of the form https://host[:port][/path]: $WEB_APP_URL"
-  exit 1
-fi
+# Hostname-only contract for the two baked hostnames. WEB_HOSTNAME feeds the
+# /web 302 (https:// is prepended at bake time); LANDING_HOSTNAME feeds the
+# og:url/og:image canonical URLs (and the existing Traefik labels). The bare
+# hostname charset makes the metacharacters that used to break sed/nginx
+# unrepresentable, so one validator below replaces the old shape + metachar
+# guards on the web-app URL.
+WEB_HOSTNAME="${WEB_HOSTNAME:-app.slovo-propovedi.ru}"
 
-# Reject metacharacters the shape guard admits (each breaks a downstream stage):
-#   &    sed replacement metachar (whole match) -> silently corrupts baked URL
-#   \    sed replacement escape char           -> silently corrupts baked URL
-#   |    sed delimiter (s|...|...|)            -> confusing build error
-#   ; "  nginx directive terminator / quote    -> container fails at START (outage)
-#   '    breaks release.yml SSH inline quoting -> mangles value upstream
-#   $    defense-in-depth against shell/sed edge cases
-if [[ "$WEB_APP_URL" =~ [\'\"\;\&\|\$\\] ]]; then
-  echo "ERROR: WEB_APP_URL contains a forbidden character (one of: & | \\ ; \" ' \$): $WEB_APP_URL"
-  exit 1
-fi
+# LC_ALL=C keeps the character ranges ASCII-deterministic: in ru_RU.UTF-8 the
+# collation range would not span letters and every valid hostname would be
+# rejected. Validates both hostnames once; validating LANDING_HOSTNAME here
+# additionally protects the existing Traefik labels usage.
+require_valid_hostname() {
+  local name="$1" value="$2"
+  if ! (export LC_ALL=C; [[ "$value" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]); then
+    echo "ERROR: $name must be a bare hostname (no protocol, no path, no trailing slash, no port): $value" >&2
+    exit 1
+  fi
+}
+require_valid_hostname WEB_HOSTNAME "$WEB_HOSTNAME"
+require_valid_hostname LANDING_HOSTNAME "$LANDING_HOSTNAME"
 
 # --- Banner ---
 echo "==============================================================="
@@ -285,7 +282,8 @@ docker buildx build \
   --builder="$BUILDER_NAME" \
   --load \
   --tag="$IMAGE_NAME" \
-  --build-arg WEB_APP_URL="$WEB_APP_URL" \
+  --build-arg WEB_HOSTNAME="$WEB_HOSTNAME" \
+  --build-arg LANDING_HOSTNAME="$LANDING_HOSTNAME" \
   "$SRC_PATH"
 
 # --- 6. Write systemd unit ---
