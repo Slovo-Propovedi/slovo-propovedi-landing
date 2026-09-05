@@ -515,6 +515,13 @@ a:hover {
   margin-right: 0.55rem;
 }
 
+/* The UA [hidden] { display: none } rule doesn't reliably apply to
+   SVG-namespace elements (and any future .btn-icon display rule would
+   defeat it) — force it so the platform swap reliably hides the icon. */
+.btn-icon[hidden] {
+  display: none;
+}
+
 .btn-primary:hover {
   background: linear-gradient(135deg, var(--accent-soft), var(--accent));
   color: var(--on-accent);

@@ -1,6 +1,7 @@
 /* Слово.Проповеди — landing page behaviour.
    Vanilla JS, no frameworks. Populates download metadata from /apk/latest.json
-   and adjusts the CTA for Android devices. */
+   and adjusts the hero CTA for the visitor's platform: Android visitors see
+   the APK download; iOS and desktop visitors see the web-app link. */
 
 'use strict'
 
@@ -51,9 +52,11 @@ function renderRelease(release) {
   sha.textContent = release.sha256
   sha.title = release.sha256
 
-  const btn = $('download-btn')
-  btn.href = release.downloadUrl
-  btn.setAttribute('download', release.filename)
+  // On Android the primary button is the APK download; on iOS/desktop the
+  // alt-line link below the button carries the APK link instead.
+  const apkLink = IS_ANDROID ? $('download-btn') : $('alt-link')
+  apkLink.href = release.downloadUrl
+  apkLink.setAttribute('download', release.filename)
 
   // SHA copy is only meaningful once real metadata is rendered.
   $('sha-copy').disabled = false
@@ -66,15 +69,39 @@ function showNotice(message) {
   note.hidden = false
 }
 
-/* --- Android UA detection adjusts the CTA copy --- */
-function isAndroid() {
-  return /android/i.test(navigator.userAgent)
-}
+/* --- Platform detection (once at boot, reused in renderRelease) --- */
+const IS_ANDROID = /android/i.test(navigator.userAgent)
 
-function adjustCtaForAndroid() {
-  if (isAndroid()) {
-    $('download-btn').textContent = 'Установить приложение'
-  }
+/* --- Platform-aware CTA: swap button & alt-line for non-Android visitors --- */
+function adjustCtaForPlatform() {
+  // Static HTML is the Android/no-JS variant — nothing to do.
+  if (IS_ANDROID) return
+
+  const btn = $('download-btn')
+  const btnLabel = $('download-btn-label')
+  const iconDl = $('icon-download')
+  const iconWeb = $('icon-web')
+  const altLead = $('alt-lead')
+  const altLink = $('alt-link')
+
+  // Primary button → web-app link
+  btn.href = '/web'
+  btn.target = '_blank'
+  btn.rel = 'noopener'
+  btn.removeAttribute('download')
+  btnLabel.textContent = 'Открыть веб-версию'
+  iconDl.hidden = true
+  iconWeb.hidden = false
+
+  // Alt line → APK download (swapped roles)
+  altLead.textContent = 'Хотите установить приложение на Android?'
+  altLink.textContent = 'Скачайте APK'
+  // Safe fallback until latest.json loads; renderRelease overwrites with the
+  // real download URL.
+  altLink.href = RELEASES_URL
+  altLink.setAttribute('download', '')
+  altLink.removeAttribute('target')
+  altLink.removeAttribute('rel')
 }
 
 /* --- Copy SHA-256 to clipboard with feedback --- */
@@ -274,7 +301,7 @@ async function loadScreenshots() {
   }
 }
 
-adjustCtaForAndroid()
+adjustCtaForPlatform()
 setupShaCopy()
 setupThemeToggle()
 loadRelease()
