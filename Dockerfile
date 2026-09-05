@@ -22,9 +22,18 @@ COPY index.html robots.txt /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# A direct `docker build --build-arg WEB_APP_URL=<bad>` bypasses the deploy-script
+# guard, so re-guard the metacharacters here: each corrupts sed/nginx silently
+# (see vps-deploy.sh for the per-class WHY).
+RUN case "$WEB_APP_URL" in \
+    *[\'\"\;\&\|\$\\]* ) echo "ERROR: WEB_APP_URL contains a forbidden character (one of: & | \\ ; \" ' \$): $WEB_APP_URL" >&2; exit 1 ;; \
+    esac
+
 # Replace the __WEB_APP_URL__ placeholder in nginx.conf with the baked URL.
 # `|` as the sed delimiter so the URL's `/` needs no escaping.
-RUN sed -i "s|__WEB_APP_URL__|${WEB_APP_URL}|g" /etc/nginx/conf.d/default.conf
+# `nginx -t` turns any nginx-parse class failure (e.g. a stray `;`) into a BUILD
+# failure instead of a runtime outage after the container is recreated.
+RUN sed -i "s|__WEB_APP_URL__|${WEB_APP_URL}|g" /etc/nginx/conf.d/default.conf && nginx -t
 
 EXPOSE 8080
 

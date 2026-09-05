@@ -38,12 +38,27 @@ ACME_EMAIL="${ACME_EMAIL:-}"
 TRAEFIK_IMAGE="${TRAEFIK_IMAGE:-traefik:v3.4}"
 TRAEFIK_BASE_PATH="${TRAEFIK_BASE_PATH:-/slovo/traefik}"
 # Web-app URL for the /web 302 redirect. Baked into the image via --build-arg;
-# it is sed-ed into nginx.conf, so spaces/quotes/semicolons are forbidden.
+# it is sed-ed into nginx.conf, so the shape + metacharacter guards below are
+# the contract that keeps the baked URL valid for sed and nginx.
 WEB_APP_URL="${WEB_APP_URL:-https://app.slovo-propovedi.ru}"
 # LC_ALL=C keeps the [!-~] range ASCII-deterministic: in ru_RU.UTF-8 the
 # collation range would not span letters and every valid URL would be rejected.
+# This shape guard only enforces https://host[:port][/path]; the [!-~] path
+# range still admits metacharacters, which the second guard rejects below.
 if ! (export LC_ALL=C; [[ "$WEB_APP_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[!-~]*)?$ ]]); then
-  echo "ERROR: WEB_APP_URL must be a valid https URL (no spaces/quotes/semicolons): $WEB_APP_URL"
+  echo "ERROR: WEB_APP_URL must be an https URL of the form https://host[:port][/path]: $WEB_APP_URL"
+  exit 1
+fi
+
+# Reject metacharacters the shape guard admits (each breaks a downstream stage):
+#   &    sed replacement metachar (whole match) -> silently corrupts baked URL
+#   \    sed replacement escape char           -> silently corrupts baked URL
+#   |    sed delimiter (s|...|...|)            -> confusing build error
+#   ; "  nginx directive terminator / quote    -> container fails at START (outage)
+#   '    breaks release.yml SSH inline quoting -> mangles value upstream
+#   $    defense-in-depth against shell/sed edge cases
+if [[ "$WEB_APP_URL" =~ [\'\"\;\&\|\$\\] ]]; then
+  echo "ERROR: WEB_APP_URL contains a forbidden character (one of: & | \\ ; \" ' \$): $WEB_APP_URL"
   exit 1
 fi
 

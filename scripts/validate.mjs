@@ -270,6 +270,9 @@ if (!existsSync('Dockerfile')) {
   if (!/RUN sed -i "s\|__WEB_APP_URL__\|\$\{WEB_APP_URL\}\|g"/.test(dockerfile)) {
     bad('Dockerfile: missing sed RUN replacing __WEB_APP_URL__')
   }
+  if (!dockerfile.includes('nginx -t')) {
+    bad('Dockerfile: missing build-time nginx -t config check')
+  }
 }
 
 if (html && !/<a[^>]*href="\/web"/.test(html)) {
@@ -283,6 +286,9 @@ if (existsSync('scripts/vps-deploy.sh')) {
   }
   if (!/=~ \^https:\/\//.test(deploy)) {
     bad('scripts/vps-deploy.sh: missing WEB_APP_URL validation guard')
+  }
+  if (!deploy.includes('forbidden character')) {
+    bad('scripts/vps-deploy.sh: missing WEB_APP_URL metacharacter rejection guard')
   }
 }
 
