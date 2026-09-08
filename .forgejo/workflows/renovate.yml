@@ -1,0 +1,45 @@
+name: Renovate
+
+# Opens PRs to bump npm dependencies, the Dockerfile base images and the
+# Forgejo Actions used in .forgejo/workflows. Config lives in ../../renovate.json.
+#
+# Renovate is run straight from npm (`npx renovate`) rather than via
+# renovatebot/github-action, because this runner only resolves `uses:` refs
+# against data.forgejo.org (which mirrors actions/* only).
+#
+# Requires the org- or repo-level secret RENOVATE_TOKEN — a Forgejo PAT with
+# scopes: write:repository, write:issue, read:user, read:organization (the last
+# because RENOVATE_PLATFORM: forgejo queries /orgs/{org} on startup).
+# Optional: RENOVATE_GITHUB_COM_TOKEN (a github.com read-only PAT) to avoid
+# github.com rate limits when Renovate fetches release notes. It is passed as
+# the GITHUB_COM_TOKEN env var — Forgejo forbids secret names starting GITHUB_.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  renovate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Run Renovate
+        run: npx --yes renovate
+        env:
+          RENOVATE_PLATFORM: forgejo
+          RENOVATE_ENDPOINT: ${{ github.server_url }}/api/v1
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          RENOVATE_AUTODISCOVER: "false"
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING: "false"
+          RENOVATE_GIT_AUTHOR: "Renovate Bot <renovate@slovo-propovedi.ru>"
+          GITHUB_COM_TOKEN: ${{ secrets.RENOVATE_GITHUB_COM_TOKEN }}
+          LOG_LEVEL: info
