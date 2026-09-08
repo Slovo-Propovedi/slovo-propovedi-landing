@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-08
+
+### Added
+
+- Prune dangling images and cap buildx cache after deploy
+
+### Changed
+
+- Make vps-deploy.sh verify infra instead of provisioning it
+
 ## [0.5.1] - 2026-09-05
 
 ### Fixed
@@ -71,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile (nginx:alpine) with read-only `/apk` bind-mount placeholder and healthcheck
 - Version bump script (`bump-version.mjs`) and QR regeneration script (`generate-qr.mjs`)
 
+[0.6.0]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.6.0
 [0.5.1]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.5.1
 [0.5.0]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.5.0
 [0.4.1]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.4.1
