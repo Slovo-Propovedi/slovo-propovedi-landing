@@ -121,6 +121,12 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   workflow over SSH). It builds the image with buildx, writes Traefik labels
   (apex + www hostnames, www→apex redirect), starts the container, installs the
   refresh systemd units, and triggers one initial refresh.
+- **Boundary:** the script owns only the `slovo-landing` container, its
+  `slovo-landing` network and the refresh units. Shared infra (Docker, the
+  `slovo` user, the `slovo-constrained` buildx builder, Traefik and the
+  `traefik` network) is owned by the external `slovo-propovedi-playbook`
+  (`just setup-all`); the script only verifies it and fails fast if it is
+  missing — it never auto-provisions it.
 - `scripts/vps-refresh-apk.sh` runs on the VPS as root, twice daily via
   `slovo-landing-refresh.timer` (04:30 / 16:30 UTC, randomized). It fetches the
   latest mobile release from Forgejo (primary) or GitHub (fallback), verifies

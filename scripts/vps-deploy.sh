@@ -11,11 +11,15 @@ set -euo pipefail
 #
 # Usage:   DEPLOY_TAG=v1.0.0 LANDING_HOSTNAME=slovo-propovedi.ru bash vps-deploy.sh
 #
-# Idempotent: safe to re-run. Handles both first deploy and updates.
-# Prerequisites (created by the provisioning playbook):
-#   - `slovo` system user exists
-#   - Docker buildx builder `slovo-constrained` exists
-#   - Traefik reverse proxy is running (slovo-traefik.service)
+# Scope: this script owns ONLY the slovo-landing container, its own
+# `slovo-landing` Docker network, and the landing-specific APK/screenshot
+# refresh units. All shared infrastructure — Docker, the `slovo` user/group,
+# the buildx builder `slovo-constrained`, Traefik (`slovo-traefik.service`) and
+# the `traefik` Docker network — is owned by the slovo-propovedi playbook.
+# Missing infrastructure is a HARD ERROR here; it is never auto-provisioned.
+# Run the playbook first:  just setup-all  (or: just setup-service <name>).
+#
+# Idempotent: safe to re-run. Handles both the first landing deploy and updates.
 # =============================================================================
 
 # --- Configuration (override via env) ---
@@ -25,8 +29,6 @@ WWW_HOSTNAME="${WWW_HOSTNAME:-www.slovo-propovedi.ru}"
 BASE_PATH="${BASE_PATH:-/slovo/landing}"
 SRC_PATH="${SRC_PATH:-/slovo/landing/container-src}"
 BUILDER_NAME="${BUILDER_NAME:-slovo-constrained}"
-BUILDX_MEMORY="${BUILDX_MEMORY:-1g}"
-BUILDX_CPU_QUOTA="${BUILDX_CPU_QUOTA:-80000}"
 IMAGE_NAME="${IMAGE_NAME:-slovo-landing:latest}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 CONTAINER_NETWORK="${CONTAINER_NETWORK:-slovo-landing}"
@@ -34,9 +36,10 @@ TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-traefik}"
 MEMORY_LIMIT="${MEMORY_LIMIT:-64m}"
 STOP_GRACE="${STOP_GRACE:-3}"
 TRAEFIK_SERVICE="${TRAEFIK_SERVICE:-slovo-traefik.service}"
-ACME_EMAIL="${ACME_EMAIL:-}"
-TRAEFIK_IMAGE="${TRAEFIK_IMAGE:-traefik:v3.4}"
-TRAEFIK_BASE_PATH="${TRAEFIK_BASE_PATH:-/slovo/traefik}"
+
+# Shared infrastructure this deploy depends on but does NOT own (playbook-managed).
+REQUIRED_SERVICES="$TRAEFIK_SERVICE"
+REQUIRED_NETWORKS="$TRAEFIK_NETWORK"
 # Hostname-only contract for the two baked hostnames. WEB_HOSTNAME feeds the
 # /web 302 (https:// is prepended at bake time); LANDING_HOSTNAME feeds the
 # og:url/og:image canonical URLs (and the existing Traefik labels). The bare
@@ -66,167 +69,56 @@ echo "  Tag:      $DEPLOY_TAG"
 echo "  Hostname: $LANDING_HOSTNAME (www -> $WWW_HOSTNAME)"
 echo "==============================================================="
 
-# --- Ensure prerequisites ---
-echo ">> Ensuring prerequisites..."
+# --- Verify prerequisites (playbook-owned; never auto-provisioned) ---
+# This script owns ONLY the slovo-landing container and the slovo-landing
+# network (created in step 4), plus the landing-specific refresh units.
+# Everything checked below is provisioned by the slovo-propovedi playbook
+# (`just setup-all`). Anything missing fails fast with a clear message instead
+# of a half-provisioned box or a crash-looping service.
+echo ">> Verifying prerequisites..."
 
-# Docker — auto-install if missing
-if ! command -v docker >/dev/null 2>&1; then
-  echo "  Docker: missing -> installing..."
-  curl -fsSL https://get.docker.com | sh
-  systemctl enable --now docker
-  echo "  Docker: installed"
-else
-  echo "  Docker: OK"
-fi
+fail_missing() {
+  echo "ERROR: $1" >&2
+  echo "       Shared infrastructure is owned by the slovo-propovedi playbook." >&2
+  echo "       Provision it first:  just setup-all   (or: just setup-service <name>)" >&2
+  exit 1
+}
 
-# slovo user + group — create if missing (matches playbook slovo-base role)
-if ! getent group slovo >/dev/null 2>&1; then
-  echo "  slovo group: missing -> creating..."
-  groupadd --system slovo
-fi
-if ! id -u slovo >/dev/null 2>&1; then
-  echo "  slovo user: missing -> creating..."
-  useradd --system --no-create-home --shell /sbin/nologin --home /slovo --gid slovo slovo
-fi
+# Docker
+command -v docker >/dev/null 2>&1 || fail_missing "Docker is not installed."
+systemctl is-active --quiet docker || fail_missing "Docker service is not running."
+echo "  Docker: OK"
+
+# slovo user + group (playbook slovo-base role).
+# uid/gid are system-assigned, so capture them dynamically like the playbook does.
+getent group slovo >/dev/null 2>&1 || fail_missing "Group 'slovo' does not exist (playbook slovo-base role)."
+id -u slovo >/dev/null 2>&1 || fail_missing "User 'slovo' does not exist (playbook slovo-base role)."
 SLOVO_UID=$(id -u slovo)
 SLOVO_GID=$(id -g slovo)
 echo "  slovo user: OK (uid=$SLOVO_UID, gid=$SLOVO_GID)"
 
-# buildx builder — create if missing (matches playbook slovo-buildx role)
-if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
-  echo "  buildx builder '$BUILDER_NAME': missing -> creating..."
-  docker buildx create \
-    --name "$BUILDER_NAME" \
-    --driver docker-container \
-    --driver-opt memory="$BUILDX_MEMORY" \
-    --driver-opt cpu-quota="$BUILDX_CPU_QUOTA" \
-    --bootstrap
-fi
+# buildx builder (playbook slovo-buildx role)
+docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1 \
+  || fail_missing "buildx builder '$BUILDER_NAME' does not exist (playbook slovo-buildx role)."
 echo "  buildx builder: OK ($BUILDER_NAME)"
 
-# traefik Docker network — create if missing
-if ! docker network inspect "$TRAEFIK_NETWORK" >/dev/null 2>&1; then
-  echo "  traefik network: missing -> creating..."
-  docker network create "$TRAEFIK_NETWORK"
-fi
-echo "  traefik network: OK ($TRAEFIK_NETWORK)"
+# Traefik fronts this service. If it runs under a different unit name, set
+# TRAEFIK_SERVICE=<name>.
+# shellcheck disable=SC2086 # word splitting of the space-separated list is intended
+for svc in $REQUIRED_SERVICES; do
+  systemctl is-active --quiet "$svc" 2>/dev/null \
+    || fail_missing "Required service '$svc' is not running."
+done
+echo "  services: OK ($REQUIRED_SERVICES)"
 
-# Traefik service — auto-provision if missing
-if ! systemctl is-active --quiet "$TRAEFIK_SERVICE" 2>/dev/null; then
-  echo "  Traefik ($TRAEFIK_SERVICE): missing -> provisioning..."
-
-  # ACME email is required for Let's Encrypt certificate registration
-  if [ -z "$ACME_EMAIL" ]; then
-    echo "ERROR: Traefik is not running and ACME_EMAIL is not set."
-    echo ""
-    echo "       To auto-provision Traefik, provide your Let's Encrypt email:"
-    echo "         ACME_EMAIL=you@example.com bash /tmp/vps-deploy.sh"
-    echo ""
-    echo "       In the Forgejo workflow, add ACME_EMAIL as a repo secret."
-    echo ""
-    echo "       If Traefik is already running under a different service name,"
-    echo "       set TRAEFIK_SERVICE=<name> and re-run this deploy."
-    exit 1
-  fi
-
-  # Create Traefik directories
-  mkdir -p "$TRAEFIK_BASE_PATH/config" "$TRAEFIK_BASE_PATH/acme"
-
-  # Write Traefik static configuration
-  cat > "$TRAEFIK_BASE_PATH/config/traefik.yml" <<TRAEFIK_YML
-entryPoints:
-  web:
-    address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: web-secure
-          scheme: https
-  web-secure:
-    address: ":443"
-
-certificatesResolvers:
-  default:
-    acme:
-      email: $ACME_EMAIL
-      storage: /etc/traefik/acme/acme.json
-      httpChallenge:
-        entryPoint: web
-
-providers:
-  docker:
-    endpoint: unix:///var/run/docker.sock
-    exposedByDefault: false
-    network: traefik
-
-log:
-  level: INFO
-TRAEFIK_YML
-
-  # ACME storage file (Traefik requires 600 permissions)
-  touch "$TRAEFIK_BASE_PATH/acme/acme.json"
-  chmod 600 "$TRAEFIK_BASE_PATH/acme/acme.json"
-
-  # Pull Traefik image
-  echo "  Pulling $TRAEFIK_IMAGE..."
-  docker pull "$TRAEFIK_IMAGE"
-
-  # Write Traefik systemd service
-  cat > "/etc/systemd/system/$TRAEFIK_SERVICE" <<TRAEFIK_SVC
-[Unit]
-Description=slovo-traefik
-Requires=docker.service
-After=docker.service
-DefaultDependencies=no
-
-[Service]
-Type=simple
-Environment="HOME=/root"
-ExecStartPre=-/usr/bin/env sh -c '/usr/bin/env docker stop -t 30 slovo-traefik 2>/dev/null || true'
-ExecStartPre=-/usr/bin/env sh -c '/usr/bin/env docker rm slovo-traefik 2>/dev/null || true'
-ExecStartPre=/usr/bin/env docker create \\
-    --rm \\
-    --name=slovo-traefik \\
-    --log-driver=none \\
-    --publish=80:80 \\
-    --publish=443:443 \\
-    --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock \\
-    --mount type=bind,src=$TRAEFIK_BASE_PATH/config,dst=/etc/traefik \\
-    --mount type=bind,src=$TRAEFIK_BASE_PATH/acme,dst=/etc/traefik/acme \\
-    --network=traefik \\
-    --label traefik.enable=false \\
-    $TRAEFIK_IMAGE
-ExecStart=/usr/bin/env docker start --attach slovo-traefik
-ExecStop=-/usr/bin/env sh -c '/usr/bin/env docker stop -t 30 slovo-traefik 2>/dev/null || true'
-Restart=always
-RestartSec=5
-SyslogIdentifier=slovo-traefik
-
-[Install]
-WantedBy=multi-user.target
-TRAEFIK_SVC
-
-  systemctl daemon-reload
-  systemctl enable --now "$TRAEFIK_SERVICE"
-
-  # Wait for Traefik to become active
-  echo "  Waiting for Traefik to start..."
-  for _ in $(seq 1 15); do
-    if systemctl is-active --quiet "$TRAEFIK_SERVICE" 2>/dev/null; then
-      break
-    fi
-    sleep 2
-  done
-
-  if ! systemctl is-active --quiet "$TRAEFIK_SERVICE" 2>/dev/null; then
-    echo "ERROR: Traefik failed to start."
-    systemctl status "$TRAEFIK_SERVICE" --no-pager -l || true
-    exit 1
-  fi
-  echo "  Traefik: provisioned ($TRAEFIK_SERVICE active)"
-else
-  echo "  Traefik: OK ($TRAEFIK_SERVICE active)"
-fi
+# Shared Docker networks the container attaches to at runtime (step 6). The
+# slovo-landing network itself is this script's own and is created in step 4.
+# shellcheck disable=SC2086 # word splitting of the space-separated list is intended
+for net in $REQUIRED_NETWORKS; do
+  docker network inspect "$net" >/dev/null 2>&1 \
+    || fail_missing "Required Docker network '$net' does not exist."
+done
+echo "  networks: OK ($REQUIRED_NETWORKS)"
 
 # --- 1. Create paths ---
 echo ">> Ensuring paths exist..."

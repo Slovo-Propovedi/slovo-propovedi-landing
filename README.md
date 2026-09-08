@@ -99,24 +99,32 @@ npm run dev                      # локальный просмотр на http
    - Прокидывает опциональные токены и запускает обновление APK.
    - Создаёт Forgejo Release с секцией из CHANGELOG.md.
 
+> **Граница ответственности.** `vps-deploy.sh` владеет только контейнером
+> `slovo-landing`, его сетью `slovo-landing` и таймерами обновления APK/скриншотов.
+> Общая инфра — Docker, пользователь `slovo`, buildx-билдер `slovo-constrained`,
+> Traefik (`slovo-traefik.service`) и сеть `traefik` — принадлежит внешнему
+> `slovo-propovedi-playbook` и должна быть развёрнута заранее (`just setup-all`).
+> Скрипт её только проверяет и падает с ошибкой, если чего-то нет.
+
 ## Настройка нового VPS
 
 1. Создайте репозиторий в организации Slovo_Propovedi на
    `git.lightnode.ru` и запушьте main.
-2. Добавьте секреты (Settings → Actions → Secrets):
+2. Разверните общую инфру на VPS через `slovo-propovedi-playbook` (`just setup-all`) —
+   Docker, пользователь `slovo`, buildx-билдер, Traefik.
+3. Добавьте секреты (Settings → Actions → Secrets):
 
    | Секрет | Описание |
    |---|---|
    | `VPS_SSH_PRIVATE_KEY` | SSH-ключ (ed25519) для доступа к VPS |
    | `VPS_HOST` | Хостнейм или IP VPS |
    | `VPS_SSH_USER` | SSH-пользователь на VPS |
-   | `ACME_EMAIL` | Email для Let's Encrypt |
    | `FORGEJO_API_TOKEN` | (опционально) токен Forgejo API |
    | `GITHUB_MIRROR_TOKEN` | (опционально) токен GitHub API |
 
-3. Раннер: `ubuntu-24.04`.
-4. DNS: A-записи для apex (`slovo-propovedi.ru`) и `www` указывают на VPS.
-5. Первый релиз — тег `v0.1.0`.
+4. Раннер: `ubuntu-24.04`.
+5. DNS: A-записи для apex (`slovo-propovedi.ru`) и `www` указывают на VPS.
+6. Первый релиз — тег `v0.1.0`.
 
 ## Лицензия
 

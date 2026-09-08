@@ -67,7 +67,6 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
           DEPLOY_TAG: ${{ github.ref_name }}
-          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
           LANDING_HOSTNAME: ${{ vars.LANDING_HOSTNAME }}
           WEB_HOSTNAME: ${{ vars.WEB_HOSTNAME }}
         run: |
@@ -78,10 +77,11 @@ jobs:
             | ssh "$SSH_TARGET" "rm -rf /slovo/landing/container-src && mkdir -p /slovo/landing/container-src && tar xzf - -C /slovo/landing/container-src"
           # Upload and run deploy script
           scp scripts/vps-deploy.sh "$SSH_TARGET:/tmp/vps-deploy.sh"
+          # Shared infra (Traefik, Docker, slovo user, buildx) is owned by the
+          # slovo-propovedi playbook; the script only verifies it.
           ssh "$SSH_TARGET" \
             "chmod +x /tmp/vps-deploy.sh && \
              DEPLOY_TAG='$DEPLOY_TAG' \
-             ACME_EMAIL='$ACME_EMAIL' \
              LANDING_HOSTNAME='$LANDING_HOSTNAME' \
              WEB_HOSTNAME='$WEB_HOSTNAME' \
              bash /tmp/vps-deploy.sh"
