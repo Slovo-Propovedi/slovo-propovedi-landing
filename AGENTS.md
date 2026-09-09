@@ -48,8 +48,19 @@ scripts/
   release.yml         # Tag deploy: version check, SSH deploy, token provisioning,
                       #   APK refresh trigger, Forgejo release creation
   refresh-apk.yml     # Manual (workflow_dispatch) APK refresh trigger
+docs/seo.md           # SEO / indexing runbook (webmaster verification, sitemap,
+                      #   backlinks) + on-page SEO status and gaps
 .husky/commit-msg     # Enforces conventional commits
 ```
+
+## SEO / indexing
+
+On-page SEO (title, description, Open Graph, `og:image`, Twitter Card,
+`robots.txt`) already ships in `index.html` — hostnames in `og:url` / `og:image`
+are baked from `__LANDING_HOSTNAME__` at image build. Verifying the domain in
+Yandex / Google / Bing webmaster tools, submitting the sitemap and building
+backlinks is a one-time manual runbook: **`docs/seo.md`**. Known gaps (no
+`<link rel="canonical">`, no `sitemap.xml`) are tracked there.
 
 ## Build, Lint, and Deploy Commands
 
