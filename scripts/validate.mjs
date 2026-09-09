@@ -282,11 +282,49 @@ if (!existsSync('Dockerfile')) {
   if (!/RUN sed -i "s\|__LANDING_HOSTNAME__\|\$\{LANDING_HOSTNAME\}\|g" \/usr\/share\/nginx\/html\/index\.html/.test(dockerfile)) {
     bad('Dockerfile: missing sed RUN replacing __LANDING_HOSTNAME__ in index.html')
   }
+  // robots.txt and sitemap.xml also carry the __LANDING_HOSTNAME__ placeholder.
+  if (!dockerfile.includes('COPY index.html robots.txt sitemap.xml /usr/share/nginx/html/')) {
+    bad('Dockerfile: COPY must include index.html, robots.txt and sitemap.xml')
+  }
+  if (
+    !dockerfile.includes('/usr/share/nginx/html/robots.txt') ||
+    !dockerfile.includes('/usr/share/nginx/html/sitemap.xml')
+  ) {
+    bad('Dockerfile: sed must also bake __LANDING_HOSTNAME__ into robots.txt and sitemap.xml')
+  }
   if (!dockerfile.includes('nginx -t')) {
     bad('Dockerfile: missing build-time nginx -t config check')
   }
   if (dockerfile.includes('WEB_APP_URL')) {
     bad('Dockerfile: stale WEB_APP_URL reference remains')
+  }
+}
+
+// --- sitemap.xml + robots.txt Sitemap directive ---
+if (!existsSync('sitemap.xml')) {
+  bad('sitemap.xml missing')
+} else {
+  const sitemap = read('sitemap.xml')
+  if (!sitemap.includes('<urlset')) {
+    bad('sitemap.xml: must be a <urlset> sitemap')
+  }
+  const locs = [...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1])
+  if (locs.length === 0) {
+    bad('sitemap.xml: no <loc> entries')
+  }
+  for (const loc of locs) {
+    if (!/^https:\/\/__LANDING_HOSTNAME__\//.test(loc)) {
+      bad(`sitemap.xml: <loc> must start with https://__LANDING_HOSTNAME__/ (got "${loc}")`)
+    }
+  }
+  if (!locs.includes('https://__LANDING_HOSTNAME__/')) {
+    bad('sitemap.xml: must list the home page https://__LANDING_HOSTNAME__/')
+  }
+}
+if (existsSync('robots.txt')) {
+  const robots = read('robots.txt')
+  if (!/^Sitemap: https:\/\/__LANDING_HOSTNAME__\/sitemap\.xml$/m.test(robots)) {
+    bad('robots.txt: missing "Sitemap: https://__LANDING_HOSTNAME__/sitemap.xml" line')
   }
 }
 

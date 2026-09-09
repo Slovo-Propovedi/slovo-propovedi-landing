@@ -12,18 +12,36 @@
 | Open Graph | `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:locale=ru_RU`, `og:image` (1200×630, `assets/img/og.png`), `og:image:alt` |
 | Twitter Card | `summary_large_image` |
 | `og:url` / `og:image` | абсолютные, хостнейм печётся из `__LANDING_HOSTNAME__` при сборке образа (Dockerfile `sed`) |
-| `robots.txt` | `Allow: /` (в корне, отдаётся nginx) |
+| `robots.txt` | `Allow: /` + `Sitemap: https://__LANDING_HOSTNAME__/sitemap.xml` |
+| `sitemap.xml` | `<urlset>` в корне репо; хостнейм печётся из `__LANDING_HOSTNAME__` при сборке образа |
 | Язык | `<html lang="ru">` |
+
+### `sitemap.xml` — как добавлять страницы
+
+Файл `sitemap.xml` в корне репо. Сейчас одна запись — главная. Плейсхолдер
+`__LANDING_HOSTNAME__` в каждом `<loc>` заменяется на реальный хост при сборке
+образа (Dockerfile `sed` по `index.html`, `robots.txt`, `sitemap.xml`). Локально
+dev-server тоже подставляет хост.
+
+**Новая страница лендинга → новый блок в `sitemap.xml`:**
+
+```xml
+<url>
+  <loc>https://__LANDING_HOSTNAME__/новый-путь/</loc>
+  <changefreq>monthly</changefreq>
+</url>
+```
+
+`scripts/validate.mjs` требует: файл — валидный `<urlset>`, есть запись главной,
+**каждый `<loc>` начинается с `https://__LANDING_HOSTNAME__/`** (литеральный хост
+запрещён). Обновляй `sitemap.xml` в том же коммите, что и новую страницу.
 
 ### Пробелы (опциональные правки кода)
 
 - [ ] **`<link rel="canonical" href="https://__LANDING_HOSTNAME__/">`** в `<head>`
-      — сейчас есть только `og:url`. Печётся тем же `sed`, что и `og:url`;
-      добавить проверку в `scripts/validate.mjs`.
-- [ ] **`sitemap.xml`** (одна запись — главная). Для одностраничника ценность
-      небольшая, но Яндекс/Google любят наличие карты. Реализация: статический
-      `sitemap.xml` с `https://__LANDING_HOSTNAME__/`, `COPY` в Dockerfile,
-      `sed` хостнейма, строка `Sitemap:` в `robots.txt`, чек в `validate.mjs`.
+      `index.html` — сейчас есть только `og:url`. Печётся тем же `sed`;
+      добавить проверку в `scripts/validate.mjs`. При появлении второй страницы
+      canonical станет обязателен на каждой.
 
 ## Верификация в вебмастерах
 
@@ -45,14 +63,20 @@
 | Google Search Console (property: Domain — по DNS) | DNS TXT | ⬜ |
 | Bing Webmaster Tools (питает DuckDuckGo) | Import from Google Search Console | ⬜ |
 
-## Отправка sitemap / URL
+## Отправка sitemap
 
-- Если добавлен `sitemap.xml` — отправить `https://slovo-propovedi.ru/sitemap.xml`
-  в каждом вебмастере.
-- Если нет — вручную добавить главную (`https://slovo-propovedi.ru/`) и запросить
-  индексацию:
-  - Google Search Console → «Проверка URL» → «Запросить индексирование».
-  - Яндекс.Вебмастер → «Индексирование» → «Переобход страниц».
+`sitemap.xml` появляется на проде только с релизом (тег `v*`) — сперва
+`npm run bump-version` + push тега, потом заявка.
+
+- **Google Search Console** → «Файлы Sitemap» → ввести **`sitemap.xml`**
+  (путь относительно домена, без `https://` и без слэша впереди).
+- **Яндекс.Вебмастер** → «Файлы Sitemap» → ввести **полный** URL
+  `https://slovo-propovedi.ru/sitemap.xml`.
+- **Bing** — подтянется вместе с импортом из Google Search Console.
+
+> Если Google пишет «Файл Sitemap является страницей HTML» — значит запрос
+> попал на `index.html` (файла ещё нет на проде / не тот путь). Проверь:
+> `curl -sI https://slovo-propovedi.ru/sitemap.xml` → `content-type: text/xml`.
 
 | Яндекс | Google | Bing |
 |---|---|---|

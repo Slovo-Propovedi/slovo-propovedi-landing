@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Хост печётся при сборке образа (Dockerfile sed заменяет плейсхолдер).
+     Новую страницу добавлять новым блоком <url>…</url> с тем же плейсхолдером
+     в <loc>. См. docs/seo.md. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://__LANDING_HOSTNAME__/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

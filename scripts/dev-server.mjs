@@ -2,9 +2,9 @@
 
 // Local development server for the landing page.
 // Zero dependencies (node:http, node:fs, node:path). Mirrors the production
-// nginx container's html/ contents: serves only index.html, robots.txt and
-// /assets/*, answers /web with the same 302 redirect, and substitutes
-// __LANDING_HOSTNAME__ into index.html on the fly.
+// nginx container's html/ contents: serves only index.html, robots.txt,
+// sitemap.xml and /assets/*, answers /web with the same 302 redirect, and
+// substitutes __LANDING_HOSTNAME__ into index.html / robots.txt / sitemap.xml.
 
 import { createServer } from 'node:http'
 import { readFileSync, existsSync } from 'node:fs'
@@ -144,7 +144,15 @@ function resolvePublicPath(pathname) {
     return { kind: 'notFound' }
   }
   if (relative === '' || relative === 'index.html') return { kind: 'index' }
-  if (relative === 'robots.txt' || relative.startsWith('assets/')) {
+  // robots.txt and sitemap.xml carry the __LANDING_HOSTNAME__ placeholder,
+  // baked at image build — substitute it here too.
+  if (relative === 'robots.txt') {
+    return { kind: 'templated', path: resolved, type: 'text/plain; charset=utf-8' }
+  }
+  if (relative === 'sitemap.xml') {
+    return { kind: 'templated', path: resolved, type: 'application/xml; charset=utf-8' }
+  }
+  if (relative.startsWith('assets/')) {
     return { kind: 'file', path: resolved }
   }
   return { kind: 'notFound' }
@@ -185,6 +193,17 @@ function serveIndex(res) {
   }
   const body = html.replaceAll('__LANDING_HOSTNAME__', CONFIG.landingHostname)
   sendBody(res, 200, body, 'text/html; charset=utf-8')
+}
+
+function serveTemplated(res, filePath, contentType) {
+  let text
+  try {
+    text = readFileSync(filePath, 'utf-8')
+  } catch {
+    sendStatus(res, 404, 'Not Found')
+    return
+  }
+  sendBody(res, 200, text.replaceAll('__LANDING_HOSTNAME__', CONFIG.landingHostname), contentType)
 }
 
 function serveStatic(res, filePath) {
@@ -228,6 +247,10 @@ function serve(req, res) {
   }
   if (target.kind === 'index') {
     serveIndex(res)
+    return
+  }
+  if (target.kind === 'templated') {
+    serveTemplated(res, target.path, target.type)
     return
   }
   serveStatic(res, target.path)

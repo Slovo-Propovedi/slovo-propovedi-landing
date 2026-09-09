@@ -19,7 +19,8 @@ metadata contract) is produced server-side and served from that same mount.
 
 ```
 index.html            # Landing page (Russian, lang="ru")
-robots.txt            # Crawler rules
+robots.txt            # Crawler rules + Sitemap: directive (__LANDING_HOSTNAME__ baked)
+sitemap.xml           # <urlset> (__LANDING_HOSTNAME__ baked); add a <url> per new page
 nginx.conf            # Server config: port 8080, APK MIME, security headers, CSP
 Dockerfile            # nginx:alpine static image (no /apk placeholder — the
                       #   bind mount creates the mountpoint automatically)
@@ -56,11 +57,14 @@ docs/seo.md           # SEO / indexing runbook (webmaster verification, sitemap,
 ## SEO / indexing
 
 On-page SEO (title, description, Open Graph, `og:image`, Twitter Card,
-`robots.txt`) already ships in `index.html` — hostnames in `og:url` / `og:image`
-are baked from `__LANDING_HOSTNAME__` at image build. Verifying the domain in
-Yandex / Google / Bing webmaster tools, submitting the sitemap and building
-backlinks is a one-time manual runbook: **`docs/seo.md`**. Known gaps (no
-`<link rel="canonical">`, no `sitemap.xml`) are tracked there.
+`robots.txt`, `sitemap.xml`) ships with the site — every absolute URL is baked
+from `__LANDING_HOSTNAME__` at image build (Dockerfile `sed` over `index.html`,
+`robots.txt`, `sitemap.xml`); the dev server substitutes the same placeholder.
+**Adding a page → add a `<url>` to `sitemap.xml` in the same commit** (validated:
+every `<loc>` must use the `__LANDING_HOSTNAME__` placeholder). Verifying the
+domain in webmaster tools, submitting the sitemap and backlinks is a one-time
+manual runbook: **`docs/seo.md`**. Remaining gap: no `<link rel="canonical">`
+(tracked in `docs/seo.md`).
 
 ## Build, Lint, and Deploy Commands
 

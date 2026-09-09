@@ -21,7 +21,7 @@ LABEL org.opencontainers.image.title="slovo-propovedi-landing" \
 ARG WEB_HOSTNAME=app.slovo-propovedi.ru
 ARG LANDING_HOSTNAME=slovo-propovedi.ru
 
-COPY index.html robots.txt /usr/share/nginx/html/
+COPY index.html robots.txt sitemap.xml /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
@@ -44,7 +44,7 @@ RUN set -e; \
 # `|` as the sed delimiter. `nginx -t` turns any nginx-parse failure into a
 # BUILD failure instead of a runtime outage after the container is recreated.
 RUN sed -i "s|__WEB_HOSTNAME__|${WEB_HOSTNAME}|g" /etc/nginx/conf.d/default.conf && nginx -t
-RUN sed -i "s|__LANDING_HOSTNAME__|${LANDING_HOSTNAME}|g" /usr/share/nginx/html/index.html
+RUN sed -i "s|__LANDING_HOSTNAME__|${LANDING_HOSTNAME}|g" /usr/share/nginx/html/index.html /usr/share/nginx/html/robots.txt /usr/share/nginx/html/sitemap.xml
 
 EXPOSE 8080
 
