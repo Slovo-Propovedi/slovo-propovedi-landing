@@ -68,12 +68,27 @@ if (!html) {
   }
 
   // No external resource references: src attributes and <link> href attributes
-  // must be relative. Navigation <a href> links are not resources and are allowed.
+  // must be relative. Navigation <a href> links are not resources and are
+  // allowed; rel="canonical" is a hint (not a fetched resource) and is an
+  // absolute URL by definition — it uses the __LANDING_HOSTNAME__ placeholder.
   const srcs = [...html.matchAll(/\bsrc="([^"]+)"/g)].map((m) => m[1])
-  const linkHrefs = [...html.matchAll(/<link\b[^>]*\bhref="([^"]+)"/g)].map((m) => m[1])
+  const linkTags = [...html.matchAll(/<link\b[^>]*>/g)].map((m) => m[0])
+  const linkHrefs = linkTags
+    .filter((tag) => !/\brel="canonical"/.test(tag))
+    .map((tag) => tag.match(/\bhref="([^"]+)"/)?.[1])
+    .filter(Boolean)
   const external = [...srcs, ...linkHrefs].filter((u) => /^https?:\/\//.test(u))
   if (external.length > 0) {
     bad(`index.html: external resource link(s) found: ${external.join(', ')}`)
+  }
+
+  // Canonical URL — absolute https, home page, via the __LANDING_HOSTNAME__
+  // placeholder (baked at image build alongside og:url).
+  const canonical = html.match(/<link rel="canonical" href="([^"]+)">/)
+  if (!canonical) {
+    bad('index.html: missing <link rel="canonical">')
+  } else if (canonical[1] !== 'https://__LANDING_HOSTNAME__/') {
+    bad(`index.html: canonical must be https://__LANDING_HOSTNAME__/, got "${canonical[1]}"`)
   }
 
   // og:image must be an absolute https URL pointing at the committed og.png,

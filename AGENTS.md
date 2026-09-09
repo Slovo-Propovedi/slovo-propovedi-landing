@@ -57,14 +57,15 @@ docs/seo.md           # SEO / indexing runbook (webmaster verification, sitemap,
 ## SEO / indexing
 
 On-page SEO (title, description, Open Graph, `og:image`, Twitter Card,
-`robots.txt`, `sitemap.xml`) ships with the site — every absolute URL is baked
-from `__LANDING_HOSTNAME__` at image build (Dockerfile `sed` over `index.html`,
-`robots.txt`, `sitemap.xml`); the dev server substitutes the same placeholder.
-**Adding a page → add a `<url>` to `sitemap.xml` in the same commit** (validated:
-every `<loc>` must use the `__LANDING_HOSTNAME__` placeholder). Verifying the
-domain in webmaster tools, submitting the sitemap and backlinks is a one-time
-manual runbook: **`docs/seo.md`**. Remaining gap: no `<link rel="canonical">`
-(tracked in `docs/seo.md`).
+`<link rel="canonical">`, `robots.txt`, `sitemap.xml`) ships with the site —
+every absolute URL is baked from `__LANDING_HOSTNAME__` at image build
+(Dockerfile `sed` over `index.html`, `robots.txt`, `sitemap.xml`); the dev
+server substitutes the same placeholder. **Adding a page → add a `<url>` to
+`sitemap.xml` and a per-page `<link rel="canonical">` / `og:url` in the same
+commit** (validated: every sitemap `<loc>` uses the placeholder; `index.html`
+canonical is exactly `https://__LANDING_HOSTNAME__/`). Verifying the domain in
+webmaster tools, submitting the sitemap and backlinks is a one-time manual
+runbook: **`docs/seo.md`**.
 
 ## Build, Lint, and Deploy Commands
 

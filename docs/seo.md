@@ -11,7 +11,8 @@
 | `<meta name="description">` | есть, ~250 симв. |
 | Open Graph | `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:locale=ru_RU`, `og:image` (1200×630, `assets/img/og.png`), `og:image:alt` |
 | Twitter Card | `summary_large_image` |
-| `og:url` / `og:image` | абсолютные, хостнейм печётся из `__LANDING_HOSTNAME__` при сборке образа (Dockerfile `sed`) |
+| `<link rel="canonical">` | `https://__LANDING_HOSTNAME__/` |
+| `og:url` / `og:image` / `canonical` | абсолютные, хостнейм печётся из `__LANDING_HOSTNAME__` при сборке образа (Dockerfile `sed`) |
 | `robots.txt` | `Allow: /` + `Sitemap: https://__LANDING_HOSTNAME__/sitemap.xml` |
 | `sitemap.xml` | `<urlset>` в корне репо; хостнейм печётся из `__LANDING_HOSTNAME__` при сборке образа |
 | Язык | `<html lang="ru">` |
@@ -36,12 +37,13 @@ dev-server тоже подставляет хост.
 **каждый `<loc>` начинается с `https://__LANDING_HOSTNAME__/`** (литеральный хост
 запрещён). Обновляй `sitemap.xml` в том же коммите, что и новую страницу.
 
-### Пробелы (опциональные правки кода)
+### При появлении второй страницы
 
-- [ ] **`<link rel="canonical" href="https://__LANDING_HOSTNAME__/">`** в `<head>`
-      `index.html` — сейчас есть только `og:url`. Печётся тем же `sed`;
-      добавить проверку в `scripts/validate.mjs`. При появлении второй страницы
-      canonical станет обязателен на каждой.
+- новый блок `<url>` в `sitemap.xml` (см. выше);
+- **свой `<link rel="canonical">`** на каждой странице (сейчас `validate.mjs`
+  требует ровно `https://__LANDING_HOSTNAME__/` в `index.html` — при добавлении
+  страниц проверку расширить на per-page canonical);
+- `og:url` на каждой странице — на свой URL.
 
 ## Верификация в вебмастерах
 
