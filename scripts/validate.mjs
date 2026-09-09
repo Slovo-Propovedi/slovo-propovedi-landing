@@ -288,13 +288,6 @@ if (!existsSync('Dockerfile')) {
   if (dockerfile.includes('WEB_APP_URL')) {
     bad('Dockerfile: stale WEB_APP_URL reference remains')
   }
-  // Every webmaster verification file at the repo root must be COPY'd into the
-  // image, otherwise it exists locally but 404s on the deployed site.
-  for (const file of readdirSync('.')) {
-    if (/^(yandex_[0-9a-f]+|google[0-9a-f]+)\.html$/.test(file) && !dockerfile.includes(file)) {
-      bad(`Dockerfile: verification file ${file} is not COPY'd into the image`)
-    }
-  }
 }
 
 if (html) {

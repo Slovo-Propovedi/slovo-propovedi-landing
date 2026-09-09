@@ -20,7 +20,6 @@ metadata contract) is produced server-side and served from that same mount.
 ```
 index.html            # Landing page (Russian, lang="ru")
 robots.txt            # Crawler rules
-yandex_*.html         # Webmaster verification (COPY'd in Dockerfile; see docs/seo.md)
 nginx.conf            # Server config: port 8080, APK MIME, security headers, CSP
 Dockerfile            # nginx:alpine static image (no /apk placeholder — the
                       #   bind mount creates the mountpoint automatically)
