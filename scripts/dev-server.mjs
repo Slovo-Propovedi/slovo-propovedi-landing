@@ -144,7 +144,12 @@ function resolvePublicPath(pathname) {
     return { kind: 'notFound' }
   }
   if (relative === '' || relative === 'index.html') return { kind: 'index' }
-  if (relative === 'robots.txt' || relative.startsWith('assets/')) {
+  if (
+    relative === 'robots.txt' ||
+    relative.startsWith('assets/') ||
+    // webmaster verification files at the root (yandex_<hex>.html, google<hex>.html)
+    /^(yandex_[0-9a-f]+|google[0-9a-f]+)\.html$/.test(relative)
+  ) {
     return { kind: 'file', path: resolved }
   }
   return { kind: 'notFound' }

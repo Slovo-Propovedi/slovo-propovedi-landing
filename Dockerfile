@@ -22,6 +22,9 @@ ARG WEB_HOSTNAME=app.slovo-propovedi.ru
 ARG LANDING_HOSTNAME=slovo-propovedi.ru
 
 COPY index.html robots.txt /usr/share/nginx/html/
+# Webmaster verification files (Yandex / Google). Served from the site root;
+# no placeholders, just static. See docs/seo.md.
+COPY yandex_322942122d3b9266.html /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 

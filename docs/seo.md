@@ -41,9 +41,13 @@
 
 | Поисковик | Метод | Статус |
 |---|---|---|
-| Яндекс.Вебмастер (приоритет — контент русский) | DNS TXT | ⬜ |
-| Google Search Console (property: Domain — тоже по DNS) | DNS TXT | ⬜ |
+| Яндекс.Вебмастер (приоритет — контент русский) | HTML-файл `yandex_322942122d3b9266.html` (в корне репо, `COPY` в Dockerfile) | ⬜ подтвердить после релиза |
+| Google Search Console (property: Domain — по DNS) | DNS TXT | ⬜ |
 | Bing Webmaster Tools (питает DuckDuckGo) | Import from Google Search Console | ⬜ |
+
+> Файл верификации едет на прод только с релизом (тег `v*`). Каждый
+> `yandex_*.html` / `google*.html` в корне должен быть в `COPY` Dockerfile —
+> это проверяет `scripts/validate.mjs`. Локально dev-server их тоже отдаёт.
 
 ## Отправка sitemap / URL
 
