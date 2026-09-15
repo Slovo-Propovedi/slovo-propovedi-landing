@@ -69,6 +69,7 @@ jobs:
           DEPLOY_TAG: ${{ github.ref_name }}
           LANDING_HOSTNAME: ${{ vars.LANDING_HOSTNAME }}
           WEB_HOSTNAME: ${{ vars.WEB_HOSTNAME }}
+          DOCS_HOSTNAME: ${{ vars.DOCS_HOSTNAME }}
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
           # Transfer source code (runner already has the tagged checkout).
@@ -84,6 +85,7 @@ jobs:
              DEPLOY_TAG='$DEPLOY_TAG' \
              LANDING_HOSTNAME='$LANDING_HOSTNAME' \
              WEB_HOSTNAME='$WEB_HOSTNAME' \
+             DOCS_HOSTNAME='$DOCS_HOSTNAME' \
              bash /tmp/vps-deploy.sh"
 
       - name: Provision tokens and refresh APK

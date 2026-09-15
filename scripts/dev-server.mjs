@@ -20,6 +20,7 @@ const HOSTNAME_CONTRACT = 'hostname only: no protocol, no path, no trailing slas
 const DEFAULTS = {
   WEB_HOSTNAME: 'app.slovo-propovedi.ru',
   LANDING_HOSTNAME: 'slovo-propovedi.ru',
+  DOCS_HOSTNAME: 'docs.slovo-propovedi.ru',
   PORT: 8377,
 }
 
@@ -93,15 +94,18 @@ function resolveConfig() {
 
   const web = pick('WEB_HOSTNAME')
   const landing = pick('LANDING_HOSTNAME')
+  const docs = pick('DOCS_HOSTNAME')
   const port = pick('PORT')
 
   return {
     webHostname: web.value,
     landingHostname: landing.value,
+    docsHostname: docs.value,
     port: parsePort(port.value),
     sources: {
       WEB_HOSTNAME: web.source,
       LANDING_HOSTNAME: landing.source,
+      DOCS_HOSTNAME: docs.source,
       PORT: port.source,
     },
   }
@@ -120,6 +124,7 @@ function loadConfig() {
     const config = resolveConfig()
     validateHostname(config.webHostname, 'WEB_HOSTNAME', config.sources.WEB_HOSTNAME)
     validateHostname(config.landingHostname, 'LANDING_HOSTNAME', config.sources.LANDING_HOSTNAME)
+    validateHostname(config.docsHostname, 'DOCS_HOSTNAME', config.sources.DOCS_HOSTNAME)
     return config
   } catch (err) {
     console.error(err.message)
@@ -191,7 +196,9 @@ function serveIndex(res) {
     sendStatus(res, 404, 'Not Found')
     return
   }
-  const body = html.replaceAll('__LANDING_HOSTNAME__', CONFIG.landingHostname)
+  const body = html
+    .replaceAll('__LANDING_HOSTNAME__', CONFIG.landingHostname)
+    .replaceAll('__DOCS_HOSTNAME__', CONFIG.docsHostname)
   sendBody(res, 200, body, 'text/html; charset=utf-8')
 }
 
@@ -262,6 +269,7 @@ function printBanner() {
   console.log(`Dev server listening on http://127.0.0.1:${CONFIG.port}`)
   console.log(`  WEB_HOSTNAME=${CONFIG.webHostname} (${CONFIG.sources.WEB_HOSTNAME})`)
   console.log(`  LANDING_HOSTNAME=${CONFIG.landingHostname} (${CONFIG.sources.LANDING_HOSTNAME})`)
+  console.log(`  DOCS_HOSTNAME=${CONFIG.docsHostname} (${CONFIG.sources.DOCS_HOSTNAME})`)
   console.log(`  /web redirects to https://${CONFIG.webHostname}`)
 }
 

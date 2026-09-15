@@ -291,11 +291,20 @@ if (!existsSync('Dockerfile')) {
   if (!/ARG LANDING_HOSTNAME=slovo-propovedi\.ru/.test(dockerfile)) {
     bad('Dockerfile: missing ARG LANDING_HOSTNAME default')
   }
+  if (!/ARG DOCS_HOSTNAME=docs\.slovo-propovedi\.ru/.test(dockerfile)) {
+    bad('Dockerfile: missing ARG DOCS_HOSTNAME default')
+  }
   if (!/RUN sed -i "s\|__WEB_HOSTNAME__\|\$\{WEB_HOSTNAME\}\|g" \/etc\/nginx\/conf\.d\/default\.conf && nginx -t/.test(dockerfile)) {
     bad('Dockerfile: missing sed RUN replacing __WEB_HOSTNAME__ in nginx.conf with nginx -t')
   }
-  if (!/RUN sed -i "s\|__LANDING_HOSTNAME__\|\$\{LANDING_HOSTNAME\}\|g" \/usr\/share\/nginx\/html\/index\.html/.test(dockerfile)) {
-    bad('Dockerfile: missing sed RUN replacing __LANDING_HOSTNAME__ in index.html')
+  if (!/-e "s\|__LANDING_HOSTNAME__\|\$\{LANDING_HOSTNAME\}\|g"/.test(dockerfile)) {
+    bad('Dockerfile: missing sed replacing __LANDING_HOSTNAME__')
+  }
+  if (!/-e "s\|__DOCS_HOSTNAME__\|\$\{DOCS_HOSTNAME\}\|g"/.test(dockerfile)) {
+    bad('Dockerfile: missing sed replacing __DOCS_HOSTNAME__')
+  }
+  if (!dockerfile.includes('/usr/share/nginx/html/index.html /usr/share/nginx/html/robots.txt /usr/share/nginx/html/sitemap.xml')) {
+    bad('Dockerfile: sed must target index.html, robots.txt and sitemap.xml')
   }
   // robots.txt and sitemap.xml also carry the __LANDING_HOSTNAME__ placeholder.
   if (!dockerfile.includes('COPY index.html robots.txt sitemap.xml /usr/share/nginx/html/')) {
@@ -355,6 +364,9 @@ if (html) {
   if (/https:\/\/slovo-propovedi\.ru/.test(html)) {
     bad('index.html: literal https://slovo-propovedi.ru URL remains (use __LANDING_HOSTNAME__ placeholder)')
   }
+  if (/https:\/\/docs\.slovo-propovedi\.ru/.test(html)) {
+    bad('index.html: literal https://docs.slovo-propovedi.ru URL remains (use __DOCS_HOSTNAME__ placeholder)')
+  }
 }
 
 if (existsSync('scripts/vps-deploy.sh')) {
@@ -365,11 +377,17 @@ if (existsSync('scripts/vps-deploy.sh')) {
   if (!deploy.includes('require_valid_hostname LANDING_HOSTNAME')) {
     bad('scripts/vps-deploy.sh: missing require_valid_hostname invocation for LANDING_HOSTNAME')
   }
+  if (!deploy.includes('require_valid_hostname DOCS_HOSTNAME')) {
+    bad('scripts/vps-deploy.sh: missing require_valid_hostname invocation for DOCS_HOSTNAME')
+  }
   if (!deploy.includes('--build-arg WEB_HOSTNAME=')) {
     bad('scripts/vps-deploy.sh: missing --build-arg WEB_HOSTNAME=')
   }
   if (!deploy.includes('--build-arg LANDING_HOSTNAME=')) {
     bad('scripts/vps-deploy.sh: missing --build-arg LANDING_HOSTNAME=')
+  }
+  if (!deploy.includes('--build-arg DOCS_HOSTNAME=')) {
+    bad('scripts/vps-deploy.sh: missing --build-arg DOCS_HOSTNAME=')
   }
   if (deploy.includes('WEB_APP_URL')) {
     bad('scripts/vps-deploy.sh: stale WEB_APP_URL reference remains')
@@ -394,6 +412,7 @@ if (!existsSync('.env.example')) {
   const example = read('.env.example')
   if (!example.includes('WEB_HOSTNAME')) bad('.env.example: missing WEB_HOSTNAME')
   if (!example.includes('LANDING_HOSTNAME')) bad('.env.example: missing LANDING_HOSTNAME')
+  if (!example.includes('DOCS_HOSTNAME')) bad('.env.example: missing DOCS_HOSTNAME')
 }
 
 if (!existsSync('.gitignore')) {

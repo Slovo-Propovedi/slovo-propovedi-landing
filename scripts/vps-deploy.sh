@@ -40,13 +40,14 @@ TRAEFIK_SERVICE="${TRAEFIK_SERVICE:-slovo-traefik.service}"
 # Shared infrastructure this deploy depends on but does NOT own (playbook-managed).
 REQUIRED_SERVICES="$TRAEFIK_SERVICE"
 REQUIRED_NETWORKS="$TRAEFIK_NETWORK"
-# Hostname-only contract for the two baked hostnames. WEB_HOSTNAME feeds the
+# Hostname-only contract for the baked hostnames. WEB_HOSTNAME feeds the
 # /web 302 (https:// is prepended at bake time); LANDING_HOSTNAME feeds the
-# og:url/og:image canonical URLs (and the existing Traefik labels). The bare
-# hostname charset makes the metacharacters that used to break sed/nginx
-# unrepresentable, so one validator below replaces the old shape + metachar
-# guards on the web-app URL.
+# og:url/og:image canonical URLs (and the existing Traefik labels);
+# DOCS_HOSTNAME feeds the footer "API" link. The bare hostname charset makes
+# the metacharacters that used to break sed/nginx unrepresentable, so one
+# validator below replaces the old shape + metachar guards on the web-app URL.
 WEB_HOSTNAME="${WEB_HOSTNAME:-app.slovo-propovedi.ru}"
+DOCS_HOSTNAME="${DOCS_HOSTNAME:-docs.slovo-propovedi.ru}"
 
 # LC_ALL=C keeps the character ranges ASCII-deterministic: in ru_RU.UTF-8 the
 # collation range would not span letters and every valid hostname would be
@@ -61,6 +62,7 @@ require_valid_hostname() {
 }
 require_valid_hostname WEB_HOSTNAME "$WEB_HOSTNAME"
 require_valid_hostname LANDING_HOSTNAME "$LANDING_HOSTNAME"
+require_valid_hostname DOCS_HOSTNAME "$DOCS_HOSTNAME"
 
 # --- Banner ---
 echo "==============================================================="
@@ -176,6 +178,7 @@ docker buildx build \
   --tag="$IMAGE_NAME" \
   --build-arg WEB_HOSTNAME="$WEB_HOSTNAME" \
   --build-arg LANDING_HOSTNAME="$LANDING_HOSTNAME" \
+  --build-arg DOCS_HOSTNAME="$DOCS_HOSTNAME" \
   "$SRC_PATH"
 
 # --- 6. Write systemd unit ---

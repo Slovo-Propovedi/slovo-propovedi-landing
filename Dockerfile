@@ -17,9 +17,11 @@ LABEL org.opencontainers.image.title="slovo-propovedi-landing" \
 # The container rootfs is read-only in production, so runtime templating is not
 # an option — the values are sed-ed into nginx.conf + index.html below.
 # WEB_HOSTNAME feeds the /web 302 (https:// is prepended at bake time);
-# LANDING_HOSTNAME feeds the og:url/og:image canonical URLs.
+# LANDING_HOSTNAME feeds the og:url/og:image canonical URLs;
+# DOCS_HOSTNAME feeds the footer "API" link.
 ARG WEB_HOSTNAME=app.slovo-propovedi.ru
 ARG LANDING_HOSTNAME=slovo-propovedi.ru
+ARG DOCS_HOSTNAME=docs.slovo-propovedi.ru
 
 COPY index.html robots.txt sitemap.xml /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
@@ -38,13 +40,20 @@ RUN set -e; \
     if [ -z "$LANDING_HOSTNAME" ] || ! printf '%s' "$LANDING_HOSTNAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$|^[A-Za-z0-9]$'; then \
       echo "ERROR: LANDING_HOSTNAME must be a bare hostname (no protocol/scheme, no path, no trailing slash, no port): '$LANDING_HOSTNAME'" >&2; \
       exit 1; \
+    fi; \
+    if [ -z "$DOCS_HOSTNAME" ] || ! printf '%s' "$DOCS_HOSTNAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$|^[A-Za-z0-9]$'; then \
+      echo "ERROR: DOCS_HOSTNAME must be a bare hostname (no protocol/scheme, no path, no trailing slash, no port): '$DOCS_HOSTNAME'" >&2; \
+      exit 1; \
     fi
 
 # Replace the hostname placeholders with the baked values.
 # `|` as the sed delimiter. `nginx -t` turns any nginx-parse failure into a
 # BUILD failure instead of a runtime outage after the container is recreated.
 RUN sed -i "s|__WEB_HOSTNAME__|${WEB_HOSTNAME}|g" /etc/nginx/conf.d/default.conf && nginx -t
-RUN sed -i "s|__LANDING_HOSTNAME__|${LANDING_HOSTNAME}|g" /usr/share/nginx/html/index.html /usr/share/nginx/html/robots.txt /usr/share/nginx/html/sitemap.xml
+RUN sed -i \
+      -e "s|__LANDING_HOSTNAME__|${LANDING_HOSTNAME}|g" \
+      -e "s|__DOCS_HOSTNAME__|${DOCS_HOSTNAME}|g" \
+      /usr/share/nginx/html/index.html /usr/share/nginx/html/robots.txt /usr/share/nginx/html/sitemap.xml
 
 EXPOSE 8080
 
