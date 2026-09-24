@@ -167,12 +167,14 @@ fetch_tree() {
   fi
 
   local list_file="$WORKDIR/tree-$name.tsv"
+  # sort -V keeps the tree list, the fingerprint input and manifest.json in
+  # natural numeric order (…, 9, 10, 11) instead of lexicographic (10 before 2).
   jq -r '
     .tree[]
     | select(.type == "blob")
     | select(.path | test("^assets/screenshots/[A-Za-z0-9_][A-Za-z0-9._-]*\\.png$"))
     | [.path, .sha] | join(":")
-  ' "$json_file" | sort > "$list_file"
+  ' "$json_file" | sort -V > "$list_file"
   rm -f "$json_file"
 
   TREE_FILE="$list_file"

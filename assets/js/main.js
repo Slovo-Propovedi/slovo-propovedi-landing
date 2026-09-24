@@ -197,6 +197,10 @@ async function loadRelease() {
 /* --- Parse the screenshots manifest into trusted fields --- */
 const SCREENSHOT_FILE_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*\.png$/
 const SHA40_RE = /^[0-9a-f]{40}$/i
+// The manifest order is not guaranteed natural (old manifests are lexicographic,
+// and `sort -V` / ICU collation can disagree), so the gallery enforces natural
+// order (…, 9, 10, 11) itself.
+const SCREENSHOT_ORDER = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
 function parseScreenshotsManifest(data) {
   if (!data || typeof data !== 'object') throw new Error('manifest.json: payload is not an object')
@@ -204,20 +208,22 @@ function parseScreenshotsManifest(data) {
   if (!Array.isArray(images)) throw new Error('manifest.json: images is not an array')
   // Fail-closed: any malformed entry rejects the whole manifest so the gallery
   // never renders a file that could point outside the /screenshots mount.
-  return images.map((entry, index) => {
-    if (!entry || typeof entry !== 'object') throw new Error(`manifest.json: images[${index}] is not an object`)
-    const { file, sha, size } = entry
-    if (typeof file !== 'string' || !SCREENSHOT_FILE_RE.test(file)) {
-      throw new Error(`manifest.json: images[${index}] invalid file`)
-    }
-    if (typeof sha !== 'string' || !SHA40_RE.test(sha)) {
-      throw new Error(`manifest.json: images[${index}] invalid sha`)
-    }
-    if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) {
-      throw new Error(`manifest.json: images[${index}] invalid size`)
-    }
-    return { file, sha, size }
-  })
+  return images
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object') throw new Error(`manifest.json: images[${index}] is not an object`)
+      const { file, sha, size } = entry
+      if (typeof file !== 'string' || !SCREENSHOT_FILE_RE.test(file)) {
+        throw new Error(`manifest.json: images[${index}] invalid file`)
+      }
+      if (typeof sha !== 'string' || !SHA40_RE.test(sha)) {
+        throw new Error(`manifest.json: images[${index}] invalid sha`)
+      }
+      if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) {
+        throw new Error(`manifest.json: images[${index}] invalid size`)
+      }
+      return { file, sha, size }
+    })
+    .sort((a, b) => SCREENSHOT_ORDER.compare(a.file, b.file))
 }
 
 /* --- Caption map keyed by stem (may drift; the fallback always applies) --- */
