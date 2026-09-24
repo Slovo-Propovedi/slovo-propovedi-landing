@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-24
+
+### Added
+
+- Notify session when model failover activates
+- Profile plugin with adaptive model failover
+- Profile plugin with adaptive model failover
+
+### Fixed
+
+- Change reviewer model in opencode profile configs
+- Bound failover error-body read to 2KB
+- Pin markdown-defined subagents via frontmatter, not registry
+
 ## [0.7.0] - 2026-09-15
 
 ### Added
@@ -101,6 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile (nginx:alpine) with read-only `/apk` bind-mount placeholder and healthcheck
 - Version bump script (`bump-version.mjs`) and QR regeneration script (`generate-qr.mjs`)
 
+[0.8.0]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.8.0
 [0.7.0]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.7.0
 [0.6.3]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.6.3
 [0.6.2]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.6.2
