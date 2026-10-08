@@ -119,7 +119,7 @@ npm run dev                      # локальный просмотр на http
    | `VPS_SSH_PRIVATE_KEY` | SSH-ключ (ed25519) для доступа к VPS |
    | `VPS_HOST` | Хостнейм или IP VPS |
    | `VPS_SSH_USER` | SSH-пользователь на VPS |
-   | `FORGEJO_API_TOKEN` | (опционально) токен Forgejo API |
+   | `REPOSITORY_API_TOKEN` | (опционально) API-токен инстанса с репозиториями |
    | `GITHUB_MIRROR_TOKEN` | (опционально) токен GitHub API |
 
 4. Раннер: `ubuntu-24.04`.

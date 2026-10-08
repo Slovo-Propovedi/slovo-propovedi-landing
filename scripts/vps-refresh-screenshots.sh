@@ -16,15 +16,45 @@ set -euo pipefail
 # present on disk, the script exits 0 early without re-downloading anything.
 # =============================================================================
 
+# --- Env file (systemd timers provide no shell environment) ---
+# Reads KEY=VALUE lines from ENV_FILE (default /etc/default/slovo-landing) so
+# the timer-driven run gets its configuration. Path is overridable; missing
+# file is NOT an error — the required-variable check below fails fast instead.
+ENV_FILE="${ENV_FILE:-/etc/default/slovo-landing}"
+if [ -r "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
+# --- Required configuration (fail fast, no production defaults) ---
+require_env() {
+  if [ -z "${!1:-}" ]; then
+    echo "ERROR: $1 is required. Set it in $ENV_FILE (ENV_FILE overridable) or in the environment." >&2
+    MISSING_ENV=1
+  fi
+}
+MISSING_ENV=0
+require_env REPOSITORY_URL
+require_env MIRROR_GITHUB_LATEST_RELEASE_URL
+require_env MIRROR_GITHUB_SCREENSHOTS_RAW_URL
+if [ "$MISSING_ENV" -ne 0 ]; then
+  echo "ERROR: missing required environment variables — aborting" >&2
+  exit 1
+fi
+
 # --- Configuration (override via env) ---
 SCREENSHOTS_DIR="${SCREENSHOTS_DIR:-/slovo/landing/screenshots}"
 TOKEN_DIR="${TOKEN_DIR:-/slovo/landing/tokens}"
 TIMEOUT="${TIMEOUT:-120}"
 
-FORGEJO_API="${FORGEJO_API:-https://git.lightnode.ru/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/git/trees/main?recursive=true}"
-FORGEJO_RAW="${FORGEJO_RAW:-https://git.lightnode.ru/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/raw/assets/screenshots}"
-GITHUB_API="${GITHUB_API:-https://api.github.com/repos/Slovo-Propovedi/slovo-propovedi-mobile/git/trees/main?recursive=1}"
-GITHUB_RAW="${GITHUB_RAW:-https://raw.githubusercontent.com/Slovo-Propovedi/slovo-propovedi-mobile/main/assets/screenshots}"
+# Strip a single trailing slash so https://host//api/... can never be built.
+REPOSITORY_URL="${REPOSITORY_URL%/}"
+MIRROR_GITHUB_LATEST_RELEASE_URL="${MIRROR_GITHUB_LATEST_RELEASE_URL%/}"
+MIRROR_GITHUB_SCREENSHOTS_RAW_URL="${MIRROR_GITHUB_SCREENSHOTS_RAW_URL%/}"
+REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/git/trees/main?recursive=true"
+REPOSITORY_RAW="$REPOSITORY_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/raw/assets/screenshots"
 
 # --- Concurrency guard (single refresh at a time) ---
 mkdir -p "$SCREENSHOTS_DIR"
@@ -59,11 +89,11 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
 fi
 
 # --- Token detection (never echoed) ---
-FORGEJO_TOKEN=""
-if [ -n "${FORGEJO_API_TOKEN:-}" ]; then
-  FORGEJO_TOKEN="$(printf '%s' "$FORGEJO_API_TOKEN" | tr -d '\r\n')"
+REPOSITORY_TOKEN=""
+if [ -n "${REPOSITORY_API_TOKEN:-}" ]; then
+  REPOSITORY_TOKEN="$(printf '%s' "$REPOSITORY_API_TOKEN" | tr -d '\r\n')"
 elif [ -r "$TOKEN_DIR/forgejo" ] && [ -s "$TOKEN_DIR/forgejo" ]; then
-  FORGEJO_TOKEN="$(tr -d '\r\n' < "$TOKEN_DIR/forgejo")"
+  REPOSITORY_TOKEN="$(tr -d '\r\n' < "$TOKEN_DIR/forgejo")"
 fi
 
 GITHUB_TOKEN=""
@@ -76,11 +106,11 @@ fi
 # --- Auth headers written to files (never in argv) ---
 # curl -H @file (>=7.55) reads the header from a file, keeping the token out of
 # /proc/*/cmdline. Files live in the private 0700 WORKDIR, cleaned by the EXIT trap.
-FORGEJO_AUTH_HDR=""
-if [ -n "$FORGEJO_TOKEN" ]; then
-  FORGEJO_AUTH_HDR="$WORKDIR/forgejo-auth.hdr"
-  printf 'Authorization: token %s\n' "$FORGEJO_TOKEN" > "$FORGEJO_AUTH_HDR"
-  chmod 600 "$FORGEJO_AUTH_HDR"
+REPOSITORY_AUTH_HDR=""
+if [ -n "$REPOSITORY_TOKEN" ]; then
+  REPOSITORY_AUTH_HDR="$WORKDIR/forgejo-auth.hdr"
+  printf 'Authorization: token %s\n' "$REPOSITORY_TOKEN" > "$REPOSITORY_AUTH_HDR"
+  chmod 600 "$REPOSITORY_AUTH_HDR"
 fi
 
 GITHUB_AUTH_HDR=""
@@ -128,7 +158,7 @@ fetch_tree() {
 
   if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
     if [ "$name" = "forgejo-anon" ]; then
-      echo "  [$name] auth required (HTTP $http_code) — provide a token in $TOKEN_DIR/forgejo (mode 600) or FORGEJO_API_TOKEN env"
+      echo "  [$name] auth required (HTTP $http_code) — provide a token in $TOKEN_DIR/forgejo (mode 600) or REPOSITORY_API_TOKEN env"
     elif [ "$name" = "github-anon" ]; then
       echo "  [$name] rate-limited or forbidden (HTTP $http_code) — provide a token in $TOKEN_DIR/github or GITHUB_MIRROR_TOKEN env"
     else
@@ -185,13 +215,13 @@ fetch_tree() {
 
 # --- Try sources in order; first success wins ---
 echo ">> Fetching mobile repo screenshot tree..."
-if fetch_tree "forgejo-anon" "$FORGEJO_API" "" "" "$FORGEJO_RAW" "?ref=main"; then
+if fetch_tree "forgejo-anon" "$REPOSITORY_API" "" "" "$REPOSITORY_RAW" "?ref=main"; then
   :
-elif [ -n "$FORGEJO_TOKEN" ] && fetch_tree "forgejo-token" "$FORGEJO_API" "@$FORGEJO_AUTH_HDR" "" "$FORGEJO_RAW" "?ref=main"; then
+elif [ -n "$REPOSITORY_TOKEN" ] && fetch_tree "forgejo-token" "$REPOSITORY_API" "@$REPOSITORY_AUTH_HDR" "" "$REPOSITORY_RAW" "?ref=main"; then
   :
-elif fetch_tree "github-anon" "$GITHUB_API" "" "Accept: application/vnd.github+json" "$GITHUB_RAW" ""; then
+elif fetch_tree "github-anon" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
   :
-elif [ -n "$GITHUB_TOKEN" ] && fetch_tree "github-token" "$GITHUB_API" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json" "$GITHUB_RAW" ""; then
+elif [ -n "$GITHUB_TOKEN" ] && fetch_tree "github-token" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
   :
 else
   echo "ERROR: no screenshot source succeeded; leaving previous state untouched" >&2
@@ -312,7 +342,7 @@ updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 jq -n \
   --arg fingerprint "$FINGERPRINT" \
   --arg updatedAt "$updated_at" \
-  --arg sourceUrl "https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-mobile" \
+  --arg sourceUrl "$REPOSITORY_URL/Slovo_Propovedi/slovo-propovedi-mobile" \
   --arg sourcePath "assets/screenshots" \
   --argjson images "$(jq -Rs '
     split("\n")

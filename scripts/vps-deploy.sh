@@ -9,7 +9,9 @@ set -euo pipefail
 # `slovo-landing` so it never collides with the PRODUCTION docs router on the
 # shared Traefik instance.
 #
-# Usage:   DEPLOY_TAG=v1.0.0 LANDING_HOSTNAME=slovo-propovedi.ru bash vps-deploy.sh
+# Usage:   DEPLOY_TAG=v1.0.0 LANDING_HOSTNAME=example.com WWW_HOSTNAME=www.example.com \
+#          WEB_HOSTNAME=app.example.com DOCS_HOSTNAME=docs.example.com bash vps-deploy.sh
+# All hostnames are required env — there are NO production defaults baked in.
 #
 # Scope: this script owns ONLY the slovo-landing container, its own
 # `slovo-landing` Docker network, and the landing-specific APK/screenshot
@@ -25,7 +27,7 @@ set -euo pipefail
 # --- Configuration (override via env) ---
 DEPLOY_TAG="${DEPLOY_TAG:?ERROR: DEPLOY_TAG is required (e.g. v1.0.0)}"
 LANDING_HOSTNAME="${LANDING_HOSTNAME:?ERROR: LANDING_HOSTNAME is required (e.g. slovo-propovedi.ru)}"
-WWW_HOSTNAME="${WWW_HOSTNAME:-www.slovo-propovedi.ru}"
+WWW_HOSTNAME="${WWW_HOSTNAME:?ERROR: WWW_HOSTNAME is required (e.g. www.example.com)}"
 BASE_PATH="${BASE_PATH:-/slovo/landing}"
 SRC_PATH="${SRC_PATH:-/slovo/landing/container-src}"
 BUILDER_NAME="${BUILDER_NAME:-slovo-constrained}"
@@ -46,8 +48,8 @@ REQUIRED_NETWORKS="$TRAEFIK_NETWORK"
 # DOCS_HOSTNAME feeds the footer "API" link. The bare hostname charset makes
 # the metacharacters that used to break sed/nginx unrepresentable, so one
 # validator below replaces the old shape + metachar guards on the web-app URL.
-WEB_HOSTNAME="${WEB_HOSTNAME:-app.slovo-propovedi.ru}"
-DOCS_HOSTNAME="${DOCS_HOSTNAME:-docs.slovo-propovedi.ru}"
+WEB_HOSTNAME="${WEB_HOSTNAME:?ERROR: WEB_HOSTNAME is required (e.g. app.example.com)}"
+DOCS_HOSTNAME="${DOCS_HOSTNAME:?ERROR: DOCS_HOSTNAME is required (e.g. docs.example.com)}"
 
 # LC_ALL=C keeps the character ranges ASCII-deterministic: in ru_RU.UTF-8 the
 # collation range would not span letters and every valid hostname would be

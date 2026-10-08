@@ -13,15 +13,16 @@ LABEL org.opencontainers.image.title="slovo-propovedi-landing" \
 # the image. Docker creates the mountpoint automatically when the bind mount is
 # attached, so no placeholder dir is needed here.
 
-# Hostnames baked at build time; overridable per-deploy via --build-arg.
+# Hostnames baked at build time; REQUIRED via --build-arg (no defaults — the
+# build fails without them, so a prod host can never be assumed).
 # The container rootfs is read-only in production, so runtime templating is not
 # an option — the values are sed-ed into nginx.conf + index.html below.
 # WEB_HOSTNAME feeds the /web 302 (https:// is prepended at bake time);
 # LANDING_HOSTNAME feeds the og:url/og:image canonical URLs;
 # DOCS_HOSTNAME feeds the footer "API" link.
-ARG WEB_HOSTNAME=app.slovo-propovedi.ru
-ARG LANDING_HOSTNAME=slovo-propovedi.ru
-ARG DOCS_HOSTNAME=docs.slovo-propovedi.ru
+ARG WEB_HOSTNAME
+ARG LANDING_HOSTNAME
+ARG DOCS_HOSTNAME
 
 COPY index.html robots.txt sitemap.xml /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/

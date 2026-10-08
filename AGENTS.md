@@ -170,8 +170,8 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   opening in a new tab (`target="_blank" rel="noopener"`). nginx answers it
   with a `302` redirect to the web app.
 - The target hostname comes from `WEB_HOSTNAME` (Forgejo repo variable,
-  optional). Flow: release.yml env → SSH inline env → `vps-deploy.sh`
-  (validates a bare hostname, defaults to `app.slovo-propovedi.ru`) →
+  required). Flow: release.yml env → SSH inline env → `vps-deploy.sh`
+  (validates a bare hostname, fails fast if unset) →
   `--build-arg WEB_HOSTNAME=...` → Dockerfile `sed` replaces the
   `__WEB_HOSTNAME__` placeholder in nginx.conf at image build, with the
   `https://` prefix added at bake time → nginx serves

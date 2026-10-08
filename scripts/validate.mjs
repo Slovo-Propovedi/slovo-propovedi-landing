@@ -285,14 +285,25 @@ if (!existsSync('Dockerfile')) {
   bad('Dockerfile missing')
 } else {
   const dockerfile = read('Dockerfile')
-  if (!/ARG WEB_HOSTNAME=app\.slovo-propovedi\.ru/.test(dockerfile)) {
-    bad('Dockerfile: missing ARG WEB_HOSTNAME default')
+  // ARGs must be declared WITHOUT defaults — the build must fail when a
+  // hostname build-arg is absent, never assume a production host.
+  if (!/^ARG WEB_HOSTNAME$/m.test(dockerfile)) {
+    bad('Dockerfile: ARG WEB_HOSTNAME must be declared without a default')
   }
-  if (!/ARG LANDING_HOSTNAME=slovo-propovedi\.ru/.test(dockerfile)) {
-    bad('Dockerfile: missing ARG LANDING_HOSTNAME default')
+  if (/^ARG WEB_HOSTNAME=.+/m.test(dockerfile)) {
+    bad('Dockerfile: ARG WEB_HOSTNAME must not have a default value')
   }
-  if (!/ARG DOCS_HOSTNAME=docs\.slovo-propovedi\.ru/.test(dockerfile)) {
-    bad('Dockerfile: missing ARG DOCS_HOSTNAME default')
+  if (!/^ARG LANDING_HOSTNAME$/m.test(dockerfile)) {
+    bad('Dockerfile: ARG LANDING_HOSTNAME must be declared without a default')
+  }
+  if (/^ARG LANDING_HOSTNAME=.+/m.test(dockerfile)) {
+    bad('Dockerfile: ARG LANDING_HOSTNAME must not have a default value')
+  }
+  if (!/^ARG DOCS_HOSTNAME$/m.test(dockerfile)) {
+    bad('Dockerfile: ARG DOCS_HOSTNAME must be declared without a default')
+  }
+  if (/^ARG DOCS_HOSTNAME=.+/m.test(dockerfile)) {
+    bad('Dockerfile: ARG DOCS_HOSTNAME must not have a default value')
   }
   if (!/RUN sed -i "s\|__WEB_HOSTNAME__\|\$\{WEB_HOSTNAME\}\|g" \/etc\/nginx\/conf\.d\/default\.conf && nginx -t/.test(dockerfile)) {
     bad('Dockerfile: missing sed RUN replacing __WEB_HOSTNAME__ in nginx.conf with nginx -t')

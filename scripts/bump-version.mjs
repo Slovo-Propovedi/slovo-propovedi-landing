@@ -115,9 +115,14 @@ const section = sectionLines.join('\n') + '\n'
 // Read existing CHANGELOG.md
 let changelog = readFileSync(changelogPath, 'utf-8')
 
-// Derive repo URL from git remote for link reference. Never crash mid-run
-// after package.json/CHANGELOG were mutated: fall back to the canonical URL.
-let repoUrl = 'https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing'
+// Derive repo URL for link reference. REPOSITORY_URL is required — there is no
+// baked-in production host. A reachable `origin` remote still wins so forks
+// link to their own repo.
+const repositoryUrl = process.env.REPOSITORY_URL
+if (!repositoryUrl) {
+  exitError('ERROR: REPOSITORY_URL is required (e.g. https://git.example.org) — set it in .env or the environment')
+}
+let repoUrl = `${repositoryUrl.replace(/\/+$/, '')}/Slovo_Propovedi/slovo-propovedi-landing`
 try {
   const remote = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
   if (remote) {
@@ -127,7 +132,7 @@ try {
       .replace(/\.git$/, '')
   }
 } catch {
-  log('⚠ Could not read git remote origin — using default repo URL', YELLOW)
+  log(`⚠ Could not read git remote origin — using REPOSITORY_URL-derived repo URL`, YELLOW)
 }
 const linkRef = `[${newVersion}]: ${repoUrl}/src/tag/v${newVersion}`
 

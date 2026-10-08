@@ -17,12 +17,14 @@ const ENV_PATH = join(ROOT, '.env')
 const HOSTNAME_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/
 const HOSTNAME_CONTRACT = 'hostname only: no protocol, no path, no trailing slash, no port'
 
+// Production hostnames have NO defaults — they are required from the
+// environment or .env (PORT keeps a dev-only default).
 const DEFAULTS = {
-  WEB_HOSTNAME: 'app.slovo-propovedi.ru',
-  LANDING_HOSTNAME: 'slovo-propovedi.ru',
-  DOCS_HOSTNAME: 'docs.slovo-propovedi.ru',
   PORT: 8377,
 }
+
+// Hostname variables that must be provided; PORT is optional.
+const REQUIRED_KEYS = ['WEB_HOSTNAME', 'LANDING_HOSTNAME', 'DOCS_HOSTNAME']
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -80,7 +82,8 @@ function parsePort(value) {
 }
 
 // Resolve the effective config: real environment wins over .env, which wins
-// over hardcoded defaults. Returns { webHostname, landingHostname, port, sources }.
+// over the (PORT-only) defaults. Required hostnames fail fast when absent.
+// Returns { webHostname, landingHostname, port, sources }.
 function resolveConfig() {
   const dotenv = existsSync(ENV_PATH)
     ? parseDotenv(readFileSync(ENV_PATH, 'utf-8'), ENV_PATH)
@@ -90,6 +93,14 @@ function resolveConfig() {
     if (process.env[name] !== undefined) return { value: process.env[name], source: 'environment' }
     if (dotenv[name] !== undefined) return { value: dotenv[name], source: '.env' }
     return { value: DEFAULTS[name], source: 'default' }
+  }
+
+  const missing = REQUIRED_KEYS.filter((name) => pick(name).value === undefined)
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.join(', ')}. ` +
+        `Set them in the environment or in ${ENV_PATH} (see .env.example).`
+    )
   }
 
   const web = pick('WEB_HOSTNAME')

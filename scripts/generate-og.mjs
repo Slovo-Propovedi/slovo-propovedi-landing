@@ -22,8 +22,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const FONTS_DIR = join(ROOT, 'assets', 'fonts')
 const OUT = join(ROOT, 'assets', 'img', 'og.png')
 
-// The landing hostname comes from LANDING_HOSTNAME (default slovo-propovedi.ru).
-const LANDING_HOSTNAME = process.env.LANDING_HOSTNAME || 'slovo-propovedi.ru'
+// The landing hostname comes from LANDING_HOSTNAME (required).
+const LANDING_HOSTNAME = process.env.LANDING_HOSTNAME
+if (!LANDING_HOSTNAME) {
+  throw new Error('LANDING_HOSTNAME is required (e.g. LANDING_HOSTNAME=example.com npm run generate-og)')
+}
 
 const WIDTH = 1200
 const HEIGHT = 630

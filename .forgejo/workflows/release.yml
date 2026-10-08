@@ -52,6 +52,31 @@ jobs:
           echo "::error::Timed out waiting for CI status on ${{ github.sha }}"
           exit 1
 
+      - name: Validate required vars
+        # Fail fast BEFORE any deploy work: all hostnames must be configured as
+        # Forgejo org/repo-level vars (Settings → Actions → Variables).
+        run: |
+          set -e
+          missing=0
+          for var_name in LANDING_HOSTNAME WEB_HOSTNAME DOCS_HOSTNAME WWW_HOSTNAME REPOSITORY_URL MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL; do
+            if [ -z "${!var_name}" ]; then
+              echo "::error::$var_name is not set — add it as an org/repo Actions variable"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All required vars present: LANDING_HOSTNAME=$LANDING_HOSTNAME WWW_HOSTNAME=$WWW_HOSTNAME WEB_HOSTNAME=$WEB_HOSTNAME DOCS_HOSTNAME=$DOCS_HOSTNAME REPOSITORY_URL=$REPOSITORY_URL MIRROR_GITHUB_LATEST_RELEASE_URL=$MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL=$MIRROR_GITHUB_SCREENSHOTS_RAW_URL"
+        env:
+          LANDING_HOSTNAME: ${{ vars.LANDING_HOSTNAME }}
+          WEB_HOSTNAME: ${{ vars.WEB_HOSTNAME }}
+          DOCS_HOSTNAME: ${{ vars.DOCS_HOSTNAME }}
+          WWW_HOSTNAME: ${{ vars.WWW_HOSTNAME }}
+          REPOSITORY_URL: ${{ vars.REPOSITORY_URL }}
+          MIRROR_GITHUB_LATEST_RELEASE_URL: ${{ vars.MIRROR_GITHUB_LATEST_RELEASE_URL }}
+          MIRROR_GITHUB_SCREENSHOTS_RAW_URL: ${{ vars.MIRROR_GITHUB_SCREENSHOTS_RAW_URL }}
+
       - name: Setup SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
@@ -68,10 +93,23 @@ jobs:
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
           DEPLOY_TAG: ${{ github.ref_name }}
           LANDING_HOSTNAME: ${{ vars.LANDING_HOSTNAME }}
+          WWW_HOSTNAME: ${{ vars.WWW_HOSTNAME }}
           WEB_HOSTNAME: ${{ vars.WEB_HOSTNAME }}
           DOCS_HOSTNAME: ${{ vars.DOCS_HOSTNAME }}
+          REPOSITORY_URL: ${{ vars.REPOSITORY_URL }}
+          MIRROR_GITHUB_LATEST_RELEASE_URL: ${{ vars.MIRROR_GITHUB_LATEST_RELEASE_URL }}
+          MIRROR_GITHUB_SCREENSHOTS_RAW_URL: ${{ vars.MIRROR_GITHUB_SCREENSHOTS_RAW_URL }}
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
+          # Write /etc/default/slovo-landing: the env file the timer-driven
+          # refresh scripts (vps-refresh-apk / vps-refresh-screenshots) source
+          # on each run. Idempotent — rewritten on every deploy so the vars
+          # never drift from Forgejo org settings.
+          ssh "$SSH_TARGET" "sudo tee /etc/default/slovo-landing > /dev/null" <<EOF
+          REPOSITORY_URL=$REPOSITORY_URL
+          MIRROR_GITHUB_LATEST_RELEASE_URL=$MIRROR_GITHUB_LATEST_RELEASE_URL
+          MIRROR_GITHUB_SCREENSHOTS_RAW_URL=$MIRROR_GITHUB_SCREENSHOTS_RAW_URL
+          EOF
           # Transfer source code (runner already has the tagged checkout).
           # Path must match the deploy script's SRC_PATH.
           tar czf - --exclude='.git' --exclude=node_modules --exclude=test-apk . \
@@ -84,8 +122,10 @@ jobs:
             "chmod +x /tmp/vps-deploy.sh && \
              DEPLOY_TAG='$DEPLOY_TAG' \
              LANDING_HOSTNAME='$LANDING_HOSTNAME' \
+             WWW_HOSTNAME='$WWW_HOSTNAME' \
              WEB_HOSTNAME='$WEB_HOSTNAME' \
              DOCS_HOSTNAME='$DOCS_HOSTNAME' \
+             REPOSITORY_URL='$REPOSITORY_URL' \
              bash /tmp/vps-deploy.sh"
 
       - name: Provision tokens and refresh APK
@@ -95,8 +135,8 @@ jobs:
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
           # Optional tokens piped via stdin (never in process args)
-          if [ -n "${{ secrets.FORGEJO_API_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.FORGEJO_API_TOKEN }}" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/forgejo"
+          if [ -n "${{ secrets.REPOSITORY_API_TOKEN }}" ]; then
+            printf '%s' "${{ secrets.REPOSITORY_API_TOKEN }}" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/forgejo"
           fi
           if [ -n "${{ secrets.GITHUB_MIRROR_TOKEN }}" ]; then
             printf '%s' "${{ secrets.GITHUB_MIRROR_TOKEN }}" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/github"
