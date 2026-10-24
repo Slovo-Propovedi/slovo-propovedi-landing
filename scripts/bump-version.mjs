@@ -48,6 +48,35 @@ if (/^\d+\.\d+\.\d+$/.test(versionArg)) {
   newVersion = bumps[versionArg]
 }
 
+// --- Resolve repo URL for the changelog link reference ---
+// Resolved BEFORE any file is mutated so a missing URL can never leave the tree
+// half-bumped. A version bump is a local bookkeeping operation: it must not
+// depend on deployment env. A reachable `origin` remote wins (forks link to
+// their own repo); REPOSITORY_URL is only an optional fallback for checkouts
+// without an `origin` remote (CI tarballs, mirrors).
+const resolveRepoUrl = () => {
+  try {
+    const remote = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
+    if (remote) {
+      return remote
+        .replace(/^ssh:\/\/git@/, 'https://')
+        .replace(/^git@([^:]+):/, 'https://$1/')
+        .replace(/\.git$/, '')
+    }
+  } catch {
+    // No origin remote — fall through to the env fallback.
+  }
+
+  const repositoryUrl = process.env.REPOSITORY_URL
+  if (repositoryUrl) {
+    return `${repositoryUrl.replace(/\/+$/, '')}/Slovo_Propovedi/slovo-propovedi-landing`
+  }
+
+  return null
+}
+
+const repoUrl = resolveRepoUrl()
+
 // --- Update files ---
 
 // 1. package.json
@@ -115,26 +144,9 @@ const section = sectionLines.join('\n') + '\n'
 // Read existing CHANGELOG.md
 let changelog = readFileSync(changelogPath, 'utf-8')
 
-// Derive repo URL for link reference. REPOSITORY_URL is required — there is no
-// baked-in production host. A reachable `origin` remote still wins so forks
-// link to their own repo.
-const repositoryUrl = process.env.REPOSITORY_URL
-if (!repositoryUrl) {
-  exitError('ERROR: REPOSITORY_URL is required (e.g. https://git.example.org) — set it in .env or the environment')
-}
-let repoUrl = `${repositoryUrl.replace(/\/+$/, '')}/Slovo_Propovedi/slovo-propovedi-landing`
-try {
-  const remote = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
-  if (remote) {
-    repoUrl = remote
-      .replace(/^ssh:\/\/git@/, 'https://')
-      .replace(/^git@([^:]+):/, 'https://$1/')
-      .replace(/\.git$/, '')
-  }
-} catch {
-  log(`⚠ Could not read git remote origin — using REPOSITORY_URL-derived repo URL`, YELLOW)
-}
-const linkRef = `[${newVersion}]: ${repoUrl}/src/tag/v${newVersion}`
+// Link reference needs a repo URL; without one (no `origin`, no
+// REPOSITORY_URL) the section is still written, just unlinked.
+const linkRef = repoUrl ? `[${newVersion}]: ${repoUrl}/src/tag/v${newVersion}` : null
 
 // Guard: version must not already exist in changelog
 if (changelog.includes(`## [${newVersion}]`)) {
@@ -149,7 +161,9 @@ changelog = changelog.replace(
 )
 
 // Insert link reference before the first existing link reference line
-if (!changelog.includes(`[${newVersion}]:`)) {
+if (!linkRef) {
+  log('⚠ No git remote origin or REPOSITORY_URL — CHANGELOG section added without a link reference', YELLOW)
+} else if (!changelog.includes(`[${newVersion}]:`)) {
   changelog = changelog.replace(/^(\[.+?\]:)/m, `${linkRef}\n$1`)
 }
 
