@@ -4,9 +4,10 @@
 // release contract. Pure Node, no dependencies. Run via `npm run validate`.
 //
 // Checks:
-//   1. index.html — lang="ru", required element ids, forgejo releases fallback
-//      link, no external RESOURCE references, cache-busting ?v= matching
-//      package.json, og:image + twitter:card meta.
+//   1. index.html — lang="ru", required element ids, static forgejo releases
+//      fallback link (no-JS; assets/js/main.js upgrades it adaptively to
+//      Codeberg/GitHub when probed), no external RESOURCE references,
+//      cache-busting ?v= matching package.json, og:image + twitter:card meta.
 //   2. assets/js/main.js exists and references latest.json.
 //   3. QR + icon + og.png exist (icon.png and og.png verified as PNG by magic
 //      bytes); fonts dir has >= 8 .woff2.
