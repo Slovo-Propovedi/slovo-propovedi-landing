@@ -148,7 +148,9 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   latest mobile release from Forgejo (primary) or GitHub (fallback), verifies
   the archive, and atomically publishes `slovo-propovedi-vX.Y.Z.apk` +
   `latest.json`. If the served version already matches the latest release it
-  exits 0 early without re-downloading the ~30MB archive.
+  exits 0 early without re-downloading the ~30MB archive. A notes-only release
+  (mobile OTA-only mode, no APK asset) also exits 0 with a clear log line —
+  nothing to refresh, and it must not fall through to an older mirror release.
 - `scripts/vps-refresh-screenshots.sh` runs on the VPS as root, twice daily via
   `slovo-landing-refresh-shots.timer` (same cadence). It polls the mobile repo
   git tree, verifies each PNG, and atomically publishes the gallery +

@@ -13,7 +13,10 @@ set -euo pipefail
 # Sources are tried IN ORDER; the first fully-successful one wins. If none
 # succeeds the script exits 1 and leaves the previous state untouched. If the
 # already-served version matches the latest release, the script exits 0 early
-# without re-downloading the ~30MB archive.
+# without re-downloading the ~30MB archive. A notes-only release (the mobile
+# pipeline's OTA-only mode: no APK asset at all) exits 0 with a log line — there
+# is nothing to refresh, and falling through to a mirror would serve an OLDER
+# release as "latest".
 # =============================================================================
 
 # --- Env file (systemd timers provide no shell environment) ---
@@ -128,6 +131,8 @@ APK_SOURCE_FILE=""
 #   Fetches + validates the release, downloads the zip, unzips it, and locates
 #   the single APK. On full success sets the globals above and returns 0;
 #   otherwise logs why and returns non-zero so the next source is tried.
+#   Special case: returns 2 when the newest release has NO APK zip asset — an
+#   OTA-only release. The caller stops there instead of trying older mirrors.
 # =============================================================================
 process_source() {
   local name="$1" api="$2" auth="$3" extra="$4"
@@ -192,6 +197,13 @@ process_source() {
     rm -f "$json_file"
     return 1
   }
+  if [ "$count" -eq 0 ]; then
+    # Notes-only release: the mobile pipeline publishes JS-only releases with
+    # no APK asset (delivered through OTA). Nothing to refresh here.
+    echo "  [$name] latest release has no APK zip asset — OTA-only release, nothing to refresh"
+    rm -f "$json_file"
+    return 2
+  fi
   if [ "$count" -ne 1 ]; then
     echo "  [$name] expected exactly one matching zip asset, found $count"
     rm -f "$json_file"
@@ -268,18 +280,44 @@ process_source() {
 }
 
 # --- Try sources in order; first success wins ---
+# NO_APK_RELEASE latches when a source reports an OTA-only release (no APK
+# asset); the chain stops on the next elif instead of falling through to a
+# mirror that would only serve an OLDER release.
+NO_APK_RELEASE=0
+try_source() {
+  local status=0
+  process_source "$@" || status=$?
+  if [ "$status" -eq 2 ]; then
+    NO_APK_RELEASE=1
+  fi
+  return "$status"
+}
+
 echo ">> Fetching latest mobile release..."
-if process_source "forgejo-anon" "$REPOSITORY_API" "" ""; then
+if try_source "forgejo-anon" "$REPOSITORY_API" "" ""; then
   :
-elif [ -n "$REPOSITORY_TOKEN" ] && process_source "forgejo-token" "$REPOSITORY_API" "@$REPOSITORY_AUTH_HDR" ""; then
+elif [ "$NO_APK_RELEASE" -eq 1 ]; then
   :
-elif process_source "github-anon" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "" "Accept: application/vnd.github+json"; then
+elif [ -n "$REPOSITORY_TOKEN" ] && try_source "forgejo-token" "$REPOSITORY_API" "@$REPOSITORY_AUTH_HDR" ""; then
   :
-elif [ -n "$GITHUB_TOKEN" ] && process_source "github-token" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json"; then
+elif [ "$NO_APK_RELEASE" -eq 1 ]; then
+  :
+elif try_source "github-anon" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "" "Accept: application/vnd.github+json"; then
+  :
+elif [ "$NO_APK_RELEASE" -eq 1 ]; then
+  :
+elif [ -n "$GITHUB_TOKEN" ] && try_source "github-token" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json"; then
+  :
+elif [ "$NO_APK_RELEASE" -eq 1 ]; then
   :
 else
   echo "ERROR: no release source succeeded; leaving previous state untouched" >&2
   exit 1
+fi
+
+if [ "$NO_APK_RELEASE" -eq 1 ]; then
+  echo ">> Latest release has no APK asset — OTA-only release, nothing to refresh"
+  exit 0
 fi
 
 # --- SHA-256 deep check (versions differ but content may be identical) ---
