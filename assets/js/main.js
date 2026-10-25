@@ -5,7 +5,33 @@
 
 'use strict'
 
-const RELEASES_URL = 'https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-mobile/releases'
+/* --- Adaptive releases link: Forgejo → Codeberg → GitHub ---
+   The static hrefs in index.html point at the Forgejo releases page, so
+   no-JS visitors (and visitors whose probes all fail) get the primary host.
+   At boot we probe each host in priority order and upgrade the release links
+   to the first one that answers. A fetch that RESOLVES counts as responding:
+   any HTTP status is fine (404 just means "no releases yet", the host is up);
+   only network errors and timeouts are failures. */
+const RELEASES_FALLBACK_URL = 'https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-mobile/releases'
+const RELEASE_SOURCES = [
+  {
+    api: 'https://git.lightnode.ru/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/releases/latest',
+    page: 'https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-mobile/releases',
+  },
+  {
+    api: 'https://codeberg.org/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/releases/latest',
+    page: 'https://codeberg.org/Slovo_Propovedi/slovo-propovedi-mobile/releases',
+  },
+  {
+    api: 'https://api.github.com/repos/Slovo-Propovedi/slovo-propovedi-mobile/releases/latest',
+    page: 'https://github.com/Slovo-Propovedi/slovo-propovedi-mobile/releases',
+  },
+]
+const RELEASE_PROBE_TIMEOUT = 4000
+
+// Current releases page; showNotice reads it at the moment the notice shows,
+// so the message is correct whether loadRelease wins or loses the race.
+let resolvedReleasesUrl = RELEASES_FALLBACK_URL
 
 const $ = (id) => document.getElementById(id)
 
@@ -69,6 +95,42 @@ function showNotice(message) {
   note.hidden = false
 }
 
+/* --- Adaptive releases link resolution (see RELEASE_SOURCES above) --- */
+async function probeReleaseHost(source) {
+  const controller = new AbortController()
+  // ~4s per source: enough for a slow host, short enough to move on quickly.
+  const timer = setTimeout(function () { controller.abort() }, RELEASE_PROBE_TIMEOUT)
+  try {
+    await fetch(source.api, { cache: 'no-store', signal: controller.signal })
+    return true
+  } catch (error) {
+    console.warn(error)
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function applyReleasesUrl(url) {
+  resolvedReleasesUrl = url
+  // Anchors still carrying the static fallback href: the «Другие версии»
+  // button, the footer «Релизы» link, and download-btn only while latest.json
+  // has not replaced it with the APK link (the non-Android CTA points at /web).
+  document.querySelectorAll(`a[href="${RELEASES_FALLBACK_URL}"]`).forEach(function (link) {
+    link.href = url
+  })
+}
+
+async function resolveReleasesUrl() {
+  for (const source of RELEASE_SOURCES) {
+    if (await probeReleaseHost(source)) {
+      applyReleasesUrl(source.page)
+      return
+    }
+  }
+  // All probes failed — keep the static primary fallback.
+}
+
 /* --- Platform detection (once at boot, reused in renderRelease) --- */
 const IS_ANDROID = /android/i.test(navigator.userAgent)
 
@@ -101,7 +163,7 @@ function adjustCtaForPlatform() {
   altLink.textContent = 'Скачайте APK'
   // Safe fallback until latest.json loads; renderRelease overwrites with the
   // real download URL.
-  altLink.href = RELEASES_URL
+  altLink.href = resolvedReleasesUrl
   altLink.setAttribute('download', '')
   altLink.removeAttribute('target')
   altLink.removeAttribute('rel')
@@ -189,7 +251,7 @@ async function loadRelease() {
     renderRelease(release)
   } catch (error) {
     // Keep the no-JS fallback href (releases page) and inform the visitor.
-    showNotice(`Не удалось получить данные о версии. Скачайте APK со страницы релизов: ${RELEASES_URL}`)
+    showNotice(`Не удалось получить данные о версии. Скачайте APK со страницы релизов: ${resolvedReleasesUrl}`)
     console.warn(error)
   }
 }
@@ -315,3 +377,5 @@ setupShaCopy()
 setupThemeToggle()
 loadRelease()
 loadScreenshots()
+// Non-blocking: links keep the static Forgejo fallback until a probe resolves.
+resolveReleasesUrl()
