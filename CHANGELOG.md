@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-10-26
+
+### Added
+
+- Read the pinned APK signer from APK_SIGNER_SHA256
+
+### Changed
+
+- Take repository and infra names from org variables
+
 ## [0.9.2] - 2026-10-26
 
 ### Fixed
@@ -147,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile (nginx:alpine) with read-only `/apk` bind-mount placeholder and healthcheck
 - Version bump script (`bump-version.mjs`) and QR regeneration script (`generate-qr.mjs`)
 
+[0.9.3]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.3
 [0.9.2]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.2
 [0.9.1]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.1
 [0.9.0]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.0
