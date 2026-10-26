@@ -151,9 +151,12 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   (primary), then the Codeberg mirror, then the GitHub mirror, verifies the
   archive (https-only downloads, zip-bomb bounds) and the **APK signing
   certificate** — `apksigner` must verify it and the signer digest must equal
-  the pinned `APK_SIGNER_SHA256` (the mobile release key, also listed in the
-  mobile repo's `public/.well-known/assetlinks.json`; public by nature, update
-  both on a key rotation). A foreign-signed APK is never served from any source.
+  one of the digests in the `APK_SIGNER_SHA256` org variable (the mobile release
+  key, also listed in the mobile repo's `public/.well-known/assetlinks.json`;
+  public by nature, so a variable, not a secret). Comma-separated digests are
+  accepted for a key rotation window. Fail-closed: a missing or malformed value
+  aborts the refresh instead of skipping the check. A foreign-signed APK is
+  never served from any source.
   It then atomically publishes `slovo-propovedi-vX.Y.Z.apk` +
   `latest.json`. If the served version already matches the latest release it
   exits 0 early without re-downloading the ~30MB archive. A notes-only release

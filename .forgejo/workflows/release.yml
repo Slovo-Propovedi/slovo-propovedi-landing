@@ -60,7 +60,7 @@ jobs:
         run: |
           set -e
           missing=0
-          for var_name in LANDING_HOSTNAME WEB_HOSTNAME DOCS_HOSTNAME WWW_HOSTNAME REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL; do
+          for var_name in LANDING_HOSTNAME WEB_HOSTNAME DOCS_HOSTNAME WWW_HOSTNAME REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL APK_SIGNER_SHA256; do
             if [ -z "${!var_name}" ]; then
               echo "::error::$var_name is not set — add it as an org/repo Actions variable"
               missing=1
@@ -75,6 +75,12 @@ jobs:
               missing=1
             fi
           done
+          # Pinned APK signer certificate(s): 64-hex SHA-256, comma-separated
+          # during a key rotation. Public value — a variable, not a secret.
+          if [ -n "$APK_SIGNER_SHA256" ] && ! printf '%s' "$APK_SIGNER_SHA256" | grep -Eq '^[0-9A-Fa-f]{64}(,[0-9A-Fa-f]{64})*$'; then
+            echo "::error::APK_SIGNER_SHA256 must be one or more comma-separated 64-hex SHA-256 digests (apksigner verify --print-certs)"
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
@@ -88,6 +94,7 @@ jobs:
           MIRROR_CODEBERG_URL: ${{ vars.MIRROR_CODEBERG_URL }}
           MIRROR_GITHUB_LATEST_RELEASE_URL: ${{ vars.MIRROR_GITHUB_LATEST_RELEASE_URL }}
           MIRROR_GITHUB_SCREENSHOTS_RAW_URL: ${{ vars.MIRROR_GITHUB_SCREENSHOTS_RAW_URL }}
+          APK_SIGNER_SHA256: ${{ vars.APK_SIGNER_SHA256 }}
 
       - name: Setup SSH
         env:
@@ -126,6 +133,7 @@ jobs:
           MIRROR_CODEBERG_URL: ${{ vars.MIRROR_CODEBERG_URL }}
           MIRROR_GITHUB_LATEST_RELEASE_URL: ${{ vars.MIRROR_GITHUB_LATEST_RELEASE_URL }}
           MIRROR_GITHUB_SCREENSHOTS_RAW_URL: ${{ vars.MIRROR_GITHUB_SCREENSHOTS_RAW_URL }}
+          APK_SIGNER_SHA256: ${{ vars.APK_SIGNER_SHA256 }}
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
           # Write /etc/default/slovo-landing: the env file the timer-driven
@@ -139,6 +147,7 @@ jobs:
           MIRROR_CODEBERG_URL=$MIRROR_CODEBERG_URL
           MIRROR_GITHUB_LATEST_RELEASE_URL=$MIRROR_GITHUB_LATEST_RELEASE_URL
           MIRROR_GITHUB_SCREENSHOTS_RAW_URL=$MIRROR_GITHUB_SCREENSHOTS_RAW_URL
+          APK_SIGNER_SHA256=$APK_SIGNER_SHA256
           EOF
           # Transfer source code (runner already has the tagged checkout).
           # Path must match the deploy script's SRC_PATH.

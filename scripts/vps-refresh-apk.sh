@@ -32,7 +32,7 @@ load_env_file() {
   [ -r "$1" ] || return 0
   while IFS='=' read -r key value || [ -n "$key" ]; do
     case "$key" in
-      REPOSITORY_URL|MIRROR_CODEBERG_URL|MIRROR_GITHUB_LATEST_RELEASE_URL|MIRROR_GITHUB_SCREENSHOTS_RAW_URL) ;;
+      REPOSITORY_URL|MIRROR_CODEBERG_URL|MIRROR_GITHUB_LATEST_RELEASE_URL|MIRROR_GITHUB_SCREENSHOTS_RAW_URL|APK_SIGNER_SHA256) ;;
       *) continue ;;
     esac
     [ -n "${!key:-}" ] && continue
@@ -53,6 +53,7 @@ MISSING_ENV=0
 require_env REPOSITORY_URL
 require_env MIRROR_CODEBERG_URL
 require_env MIRROR_GITHUB_LATEST_RELEASE_URL
+require_env APK_SIGNER_SHA256
 if [ "$MISSING_ENV" -ne 0 ]; then
   echo "ERROR: missing required environment variables — aborting" >&2
   exit 1
@@ -68,14 +69,20 @@ for var in REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL; 
   fi
 done
 
-# --- Pinned APK signing certificate ---
-# SHA-256 of the mobile release key's certificate (alias `slovo-propovedi`).
-# Public by nature: it is embedded in every signed APK and published in the
-# mobile repo's public/.well-known/assetlinks.json. An APK from ANY source that
-# is not signed with exactly this certificate is never served — a compromised
-# release host or mirror cannot push a foreign APK to new installs. On a key
-# rotation, update this value together with assetlinks.json.
-APK_SIGNER_SHA256="43f8df039d37ade81a17b7ae8edf8e431c7fd87ba160fd8c09c6281a54706d9b"
+# --- Pinned APK signing certificate(s) ---
+# APK_SIGNER_SHA256: SHA-256 of the mobile release key's certificate (64 hex,
+# as printed by `apksigner verify --print-certs`), or a comma-separated list
+# while a key rotation is in progress. Public by nature: it is embedded in every
+# signed APK and published in the mobile repo's public/.well-known/
+# assetlinks.json. An APK from ANY source not signed with one of these
+# certificates is never served — a compromised release host or mirror cannot
+# push a foreign APK to new installs. Fail-closed: a missing or malformed value
+# stops the script instead of skipping the check.
+APK_SIGNER_SHA256="$(printf '%s' "$APK_SIGNER_SHA256" | tr -d '[:space:]' | tr 'A-F' 'a-f')"
+if ! printf '%s' "$APK_SIGNER_SHA256" | grep -Eq '^[0-9a-f]{64}(,[0-9a-f]{64})*$'; then
+  echo "ERROR: APK_SIGNER_SHA256 must be one or more comma-separated 64-hex SHA-256 digests" >&2
+  exit 1
+fi
 
 # --- Configuration (override via env) ---
 APK_DIR="${APK_DIR:-/slovo/landing/apk}"
@@ -160,8 +167,8 @@ fi
 
 # =============================================================================
 # verify_apk_signature <apk>
-#   apksigner must verify the APK, and the set of signer certificate digests
-#   must be exactly the pinned one (multiple or foreign signers fail).
+#   apksigner must verify the APK, it must carry exactly one signer
+#   certificate, and that certificate must be one of the pinned digests.
 # =============================================================================
 verify_apk_signature() {
   local output digests
@@ -171,7 +178,12 @@ verify_apk_signature() {
   digests="$(printf '%s\n' "$output" \
     | sed -n 's/.*[Ss]igner.*certificate SHA-256 digest: *\([0-9A-Fa-f]\{64\}\).*/\1/p' \
     | tr 'A-F' 'a-f' | sort -u)"
-  [ "$digests" = "$APK_SIGNER_SHA256" ]
+  # Empty or multiple distinct signers never match a single 64-hex digest.
+  printf '%s' "$digests" | grep -Eqx '[0-9a-f]{64}' || return 1
+  case ",$APK_SIGNER_SHA256," in
+    *",$digests,"*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # --- Global state set by a successful source ---

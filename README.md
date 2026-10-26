@@ -20,12 +20,16 @@ APK-файлы не хранятся в этом репозитории. Скр�
    старую версию как «последнюю».
 3. Проверяет архив (только https, лимит размера распаковки против zip-бомбы)
    и **подпись APK**: `apksigner` должен подтвердить подпись, а SHA-256
-   сертификата — совпасть с закреплённым отпечатком release-ключа
-   (`APK_SIGNER_SHA256` в скрипте; тот же, что в `public/.well-known/assetlinks.json`
+   сертификата — совпасть с закреплённым отпечатком release-ключа из переменной
+   `APK_SIGNER_SHA256` (тот же, что в `public/.well-known/assetlinks.json`
    мобильного репозитория). APK с чужой подписью не публикуется ни из одного
    источника — взлом хоста релизов или зеркала не подсунет подделку новым
-   пользователям. Отпечаток публичен, секретен только ключ; при смене ключа
-   подписи обновить его вместе с `assetlinks.json`.
+   пользователям. Отпечаток публичен, секретен только ключ, поэтому это
+   переменная, а не секрет. Пустое или неверно оформленное значение
+   останавливает обновление (fail-closed), а не отключает проверку.
+   **Смена ключа подписи:** на время перехода указать оба отпечатка через
+   запятую (`старый,новый`), после — оставить только новый; `assetlinks.json`
+   в мобильном репозитории обновить так же.
 4. Извлекает APK, публикует `slovo-propovedi-vX.Y.Z.apk` и `latest.json`
    (версия, размер, SHA-256, дата) в `/slovo/landing/apk`, который nginx отдаёт
    с MIME-типом `application/vnd.android.package-archive`.
@@ -164,6 +168,7 @@ npm run dev                      # локальный просмотр на http
    | `MIRROR_CODEBERG_URL` | `https://codeberg.org` |
    | `MIRROR_GITHUB_LATEST_RELEASE_URL` | `https://api.github.com/repos/Slovo-Propovedi/slovo-propovedi-mobile/releases/latest` |
    | `MIRROR_GITHUB_SCREENSHOTS_RAW_URL` | `https://raw.githubusercontent.com/Slovo-Propovedi/slovo-propovedi-mobile/main/assets/screenshots` |
+   | `APK_SIGNER_SHA256` | `43f8df039d37ade81a17b7ae8edf8e431c7fd87ba160fd8c09c6281a54706d9b` — SHA-256 сертификата release-ключа (64 hex, как печатает `apksigner verify --print-certs`); при смене ключа — список через запятую |
 
 4. Раннер: `ubuntu-24.04`.
 5. DNS: A-записи для apex (`slovo-propovedi.ru`) и `www` указывают на VPS.
