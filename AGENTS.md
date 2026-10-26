@@ -39,9 +39,11 @@ scripts/
   validate.mjs        # Consistency checks (extended: nginx headers, CSP, og:image)
   vps-deploy.sh       # Runs ON the VPS as root: builds/starts the container,
                       #   writes Traefik labels, installs refresh units
-  vps-refresh-apk.sh  # Runs ON the VPS as root: fetches latest mobile release,
-                      #   publishes APK + latest.json into the /apk bind mount
-  vps-refresh-screenshots.sh # Runs ON the VPS as root: polls the mobile repo
+  vps-refresh-apk.sh  # Runs ON the VPS as `slovo` (sandboxed unit): fetches the
+                      #   latest mobile release (Forgejo → Codeberg → GitHub),
+                      #   verifies the pinned APK signer, publishes APK +
+                      #   latest.json into the /apk bind mount
+  vps-refresh-screenshots.sh # Runs ON the VPS as `slovo` (sandboxed unit): polls the mobile repo
                       #   git tree, syncs screenshots + manifest.json into the
                       #   /screenshots bind mount
 .forgejo/workflows/
@@ -143,17 +145,24 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   `traefik` network) is owned by the external `slovo-propovedi-playbook`
   (`just setup-all`); the script only verifies it and fails fast if it is
   missing — it never auto-provisions it.
-- `scripts/vps-refresh-apk.sh` runs on the VPS as root, twice daily via
-  `slovo-landing-refresh.timer` (04:30 / 16:30 UTC, randomized). It fetches the
-  latest mobile release from Forgejo (primary) or GitHub (fallback), verifies
-  the archive, and atomically publishes `slovo-propovedi-vX.Y.Z.apk` +
+- `scripts/vps-refresh-apk.sh` runs on the VPS as the `slovo` user in a
+  sandboxed unit, twice daily via `slovo-landing-refresh.timer` (04:30 / 16:30
+  UTC, randomized). It fetches the latest mobile release from Forgejo
+  (primary), then the Codeberg mirror, then the GitHub mirror, verifies the
+  archive (https-only downloads, zip-bomb bounds) and the **APK signing
+  certificate** — `apksigner` must verify it and the signer digest must equal
+  the pinned `APK_SIGNER_SHA256` (the mobile release key, also listed in the
+  mobile repo's `public/.well-known/assetlinks.json`; public by nature, update
+  both on a key rotation). A foreign-signed APK is never served from any source.
+  It then atomically publishes `slovo-propovedi-vX.Y.Z.apk` +
   `latest.json`. If the served version already matches the latest release it
   exits 0 early without re-downloading the ~30MB archive. A notes-only release
   (mobile OTA-only mode, no APK asset) also exits 0 with a clear log line —
   nothing to refresh, and it must not fall through to an older mirror release.
-- `scripts/vps-refresh-screenshots.sh` runs on the VPS as root, twice daily via
-  `slovo-landing-refresh-shots.timer` (same cadence). It polls the mobile repo
-  git tree, verifies each PNG, and atomically publishes the gallery +
+- `scripts/vps-refresh-screenshots.sh` runs on the VPS as the `slovo` user in a
+  sandboxed unit, twice daily via `slovo-landing-refresh-shots.timer` (same
+  cadence). It polls the mobile repo git tree (Forgejo → Codeberg → GitHub; the
+  GitHub tree URL is derived from `MIRROR_GITHUB_LATEST_RELEASE_URL`), verifies each PNG, and atomically publishes the gallery +
   `manifest.json`. If the served fingerprint already matches the remote tree it
   exits 0 early without re-downloading or rewriting anything (stale files are
   still pruned, so the gallery self-heals).
@@ -161,8 +170,20 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   `/usr/share/nginx/html/screenshots`, read-only) is added to the container
   unit by `vps-deploy.sh`, next to the `/apk` mount.
 - Tokens for the release APIs live in `/slovo/landing/tokens` (root-owned
-  0700 — the `slovo` user and container can never read them). The release
-  workflow provisions them via stdin; the refresh script reads them as root.
+  0700 — the `slovo` user and container can never read them directly). The
+  release workflow provisions them via stdin; the units receive them through
+  systemd `LoadCredential=` (`$CREDENTIALS_DIRECTORY`). `vps-deploy.sh` keeps an
+  empty file per token, because `LoadCredential=` fails on a missing file.
+- Both refresh units run with `User=slovo`, `EnvironmentFile=` (config is data,
+  never sourced as shell — manual runs parse the same file without `eval`),
+  `ProtectSystem=strict` + `ReadWritePaths=` of their own output dir only,
+  `NoNewPrivileges`, an empty capability set and the usual `Protect*`/`Restrict*`
+  options. `MemoryDenyWriteExecute` is intentionally off: `apksigner` is a JIT
+  JVM. Packages (`curl`, `jq`, `unzip`, `apksigner`) are installed by
+  `vps-deploy.sh` as root; the scripts only check for them.
+- Traefik adds HSTS (`stsSeconds=31536000`, no `includeSubDomains`/preload —
+  other subdomains belong to other services) via the `slovo-landing-hsts`
+  middleware; nginx hides its version (`server_tokens off`).
 - The refresh timer/units are installed by `vps-deploy.sh` and survive deploys
   (the script is copied into `$BASE_PATH`).
 

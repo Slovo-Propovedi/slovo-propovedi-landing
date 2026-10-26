@@ -4,10 +4,11 @@ set -euo pipefail
 # =============================================================================
 # APK Refresh Script — slovo-propovedi-landing
 # =============================================================================
-# Runs ON the VPS as root (also manually startable). Fetches the latest mobile
-# release from Forgejo (primary) or the GitHub mirror (fallback), verifies the
-# archive, and atomically places the APK + latest.json into the landing's
-# read-only bind-mount dir. Triggered twice daily by slovo-landing-refresh.timer
+# Runs ON the VPS as the unprivileged `slovo` user inside a sandboxed systemd
+# unit (also manually startable). Fetches the latest mobile release from
+# Forgejo (primary), then the Codeberg mirror, then the GitHub mirror, verifies
+# the archive AND the APK signing certificate, and atomically places the APK +
+# latest.json into the landing's read-only bind-mount dir. Triggered twice daily by slovo-landing-refresh.timer
 # and once after each deploy by the release workflow.
 #
 # Sources are tried IN ORDER; the first fully-successful one wins. If none
@@ -19,17 +20,27 @@ set -euo pipefail
 # release as "latest".
 # =============================================================================
 
-# --- Env file (systemd timers provide no shell environment) ---
-# Reads KEY=VALUE lines from ENV_FILE (default /etc/default/slovo-landing) so
-# the timer-driven run gets its configuration. Path is overridable; missing
-# file is NOT an error — the required-variable check below fails fast instead.
+# --- Env file ---
+# The systemd unit passes /etc/default/slovo-landing via EnvironmentFile=. For
+# manual runs the same file is read here as DATA — never sourced as shell, so a
+# value containing `$(...)` cannot execute. Only known keys are taken, and a
+# variable already set in the environment wins. Missing file is NOT an error —
+# the required-variable check below fails fast instead.
 ENV_FILE="${ENV_FILE:-/etc/default/slovo-landing}"
-if [ -r "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_FILE"
-  set +a
-fi
+load_env_file() {
+  local key value
+  [ -r "$1" ] || return 0
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    case "$key" in
+      REPOSITORY_URL|MIRROR_CODEBERG_URL|MIRROR_GITHUB_LATEST_RELEASE_URL|MIRROR_GITHUB_SCREENSHOTS_RAW_URL) ;;
+      *) continue ;;
+    esac
+    [ -n "${!key:-}" ] && continue
+    printf -v "$key" '%s' "$value"
+    export "${key?}"
+  done < "$1"
+}
+load_env_file "$ENV_FILE"
 
 # --- Required configuration (fail fast, no production defaults) ---
 require_env() {
@@ -40,22 +51,54 @@ require_env() {
 }
 MISSING_ENV=0
 require_env REPOSITORY_URL
+require_env MIRROR_CODEBERG_URL
 require_env MIRROR_GITHUB_LATEST_RELEASE_URL
 if [ "$MISSING_ENV" -ne 0 ]; then
   echo "ERROR: missing required environment variables — aborting" >&2
   exit 1
 fi
 
+# Every source URL must be plain https with a URL-safe charset: they are built
+# into API URLs and handed to curl, so anything else is a misconfiguration.
+HTTPS_URL_RE='^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$'
+for var in REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL; do
+  if ! printf '%s' "${!var}" | grep -Eq "$HTTPS_URL_RE"; then
+    echo "ERROR: $var must be an https:// URL (got '${!var}')" >&2
+    exit 1
+  fi
+done
+
+# --- Pinned APK signing certificate ---
+# SHA-256 of the mobile release key's certificate (alias `slovo-propovedi`).
+# Public by nature: it is embedded in every signed APK and published in the
+# mobile repo's public/.well-known/assetlinks.json. An APK from ANY source that
+# is not signed with exactly this certificate is never served — a compromised
+# release host or mirror cannot push a foreign APK to new installs. On a key
+# rotation, update this value together with assetlinks.json.
+APK_SIGNER_SHA256="43f8df039d37ade81a17b7ae8edf8e431c7fd87ba160fd8c09c6281a54706d9b"
+
 # --- Configuration (override via env) ---
 APK_DIR="${APK_DIR:-/slovo/landing/apk}"
 KEEP_VERSIONS="${KEEP_VERSIONS:-3}"
 TOKEN_DIR="${TOKEN_DIR:-/slovo/landing/tokens}"
 TIMEOUT="${TIMEOUT:-120}"
+# Zip-bomb guard: the release archive holds one ~50MB APK.
+MAX_UNZIPPED_BYTES="${MAX_UNZIPPED_BYTES:-314572800}"
+MAX_ZIP_ENTRIES="${MAX_ZIP_ENTRIES:-20}"
 
 # Strip a single trailing slash so https://host//api/... can never be built.
 REPOSITORY_URL="${REPOSITORY_URL%/}"
+MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL%/}"
 MIRROR_GITHUB_LATEST_RELEASE_URL="${MIRROR_GITHUB_LATEST_RELEASE_URL%/}"
-REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/releases/latest"
+RELEASE_API_PATH="/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/releases/latest"
+REPOSITORY_API="$REPOSITORY_URL$RELEASE_API_PATH"
+# Codeberg runs Forgejo: same API shape as the primary repository.
+CODEBERG_API="$MIRROR_CODEBERG_URL$RELEASE_API_PATH"
+
+# https only, including every redirect, and an explicit User-Agent: GitHub's
+# API requires one, and Codeberg rejects some browser-like agents that a
+# local ~/.curlrc might inject.
+CURL_PROTO=(--proto '=https' --proto-redir '=https' --user-agent 'slovo-propovedi-landing-refresh')
 
 # --- Concurrency guard (single refresh at a time) ---
 mkdir -p "$APK_DIR"
@@ -69,40 +112,34 @@ rm -f "$APK_DIR"/.tmp-* 2>/dev/null || true
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-# --- Prerequisites (idempotent) ---
-NEED_INSTALL=0
-for cmd in curl jq unzip sha256sum sort; do
+# --- Prerequisites ---
+# Installed by vps-deploy.sh (as root); this unprivileged script only checks.
+for cmd in curl jq unzip sha256sum sort apksigner; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    NEED_INSTALL=1
-    break
+    echo "ERROR: prerequisite '$cmd' is missing — re-run the landing deploy (vps-deploy.sh installs it)" >&2
+    exit 1
   fi
 done
-if [ "$NEED_INSTALL" -eq 1 ]; then
-  echo ">> Installing missing prerequisites..."
-  DEBIAN_FRONTEND=noninteractive apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl jq unzip coreutils
-  for cmd in curl jq unzip sha256sum sort; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-      echo "ERROR: prerequisite '$cmd' still missing after install" >&2
-      exit 1
-    fi
-  done
-fi
 
 # --- Token detection (never echoed) ---
-REPOSITORY_TOKEN=""
-if [ -n "${REPOSITORY_API_TOKEN:-}" ]; then
-  REPOSITORY_TOKEN="$(printf '%s' "$REPOSITORY_API_TOKEN" | tr -d '\r\n')"
-elif [ -r "$TOKEN_DIR/forgejo" ] && [ -s "$TOKEN_DIR/forgejo" ]; then
-  REPOSITORY_TOKEN="$(tr -d '\r\n' < "$TOKEN_DIR/forgejo")"
-fi
-
-GITHUB_TOKEN=""
-if [ -n "${GITHUB_MIRROR_TOKEN:-}" ]; then
-  GITHUB_TOKEN="$(printf '%s' "$GITHUB_MIRROR_TOKEN" | tr -d '\r\n')"
-elif [ -r "$TOKEN_DIR/github" ] && [ -s "$TOKEN_DIR/github" ]; then
-  GITHUB_TOKEN="$(tr -d '\r\n' < "$TOKEN_DIR/github")"
-fi
+# Order: env override, then the systemd credential (LoadCredential= hands the
+# root-only token file to this unprivileged unit), then TOKEN_DIR for manual
+# root runs. An empty file means "no token".
+read_token() {
+  local env_value="$1" name="$2" file
+  if [ -n "$env_value" ]; then
+    printf '%s' "$env_value" | tr -d '\r\n'
+    return
+  fi
+  for file in "${CREDENTIALS_DIRECTORY:-/nonexistent}/$name" "$TOKEN_DIR/$name"; do
+    if [ -r "$file" ] && [ -s "$file" ]; then
+      tr -d '\r\n' < "$file"
+      return
+    fi
+  done
+}
+REPOSITORY_TOKEN="$(read_token "${REPOSITORY_API_TOKEN:-}" forgejo)"
+GITHUB_TOKEN="$(read_token "${GITHUB_MIRROR_TOKEN:-}" github)"
 
 # --- Auth headers written to files (never in argv) ---
 # curl -H @file (>=7.55) reads the header from a file, keeping the token out of
@@ -120,6 +157,22 @@ if [ -n "$GITHUB_TOKEN" ]; then
   printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$GITHUB_AUTH_HDR"
   chmod 600 "$GITHUB_AUTH_HDR"
 fi
+
+# =============================================================================
+# verify_apk_signature <apk>
+#   apksigner must verify the APK, and the set of signer certificate digests
+#   must be exactly the pinned one (multiple or foreign signers fail).
+# =============================================================================
+verify_apk_signature() {
+  local output digests
+  if ! output="$(apksigner verify --print-certs "$1" 2>/dev/null)"; then
+    return 1
+  fi
+  digests="$(printf '%s\n' "$output" \
+    | sed -n 's/.*[Ss]igner.*certificate SHA-256 digest: *\([0-9A-Fa-f]\{64\}\).*/\1/p' \
+    | tr 'A-F' 'a-f' | sort -u)"
+  [ "$digests" = "$APK_SIGNER_SHA256" ]
+}
 
 # --- Global state set by a successful source ---
 RELEASE_VERSION=""
@@ -143,10 +196,10 @@ process_source() {
   # curl's -w '%{http_code}' prints "000" for a network failure and the real
   # code (e.g. "404") for an HTTP error even with -f, so the code alone
   # distinguishes the two cases.
-  local curl_args=(-fsS --max-time "$TIMEOUT" -o "$json_file" -w '%{http_code}')
+  local curl_args=(-fsS "${CURL_PROTO[@]}" --max-time "$TIMEOUT" -o "$json_file" -w '%{http_code}')
   if [ -n "$auth" ]; then curl_args+=(-H "$auth"); fi
   if [ -n "$extra" ]; then curl_args+=(-H "$extra"); fi
-  curl_args+=("$api")
+  curl_args+=(--url "$api")
 
   http_code="$(curl "${curl_args[@]}" 2>/dev/null || true)"
   if [ -z "$http_code" ]; then
@@ -232,10 +285,17 @@ process_source() {
     exit 0
   fi
 
+  # The asset URL comes from remote JSON: accept https only, and pass it via
+  # --url so a value starting with `-` can never be parsed as a curl option.
+  if ! printf '%s' "$asset_url" | grep -Eq '^https://[^[:space:]]+$'; then
+    echo "  [$name] asset URL is not https: '$asset_url'"
+    return 1
+  fi
+
   # --- download + verify size ---
   local download_file="$WORKDIR/release.zip"
   echo "  [$name] downloading $asset_name..."
-  if ! curl -fsSL --max-time "$TIMEOUT" -o "$download_file" "$asset_url" 2>/dev/null; then
+  if ! curl -fsSL "${CURL_PROTO[@]}" --max-time "$TIMEOUT" -o "$download_file" --url "$asset_url" 2>/dev/null; then
     echo "  [$name] download failed"
     return 1
   fi
@@ -248,10 +308,27 @@ process_source() {
     fi
   fi
 
+  # --- zip-bomb guard: bound entry count and total uncompressed size ---
+  local zip_listing zip_bytes zip_entries
+  if ! zip_listing="$(unzip -l "$download_file" 2>/dev/null | tail -n 1)"; then
+    echo "  [$name] cannot list archive"
+    return 1
+  fi
+  zip_bytes="$(printf '%s' "$zip_listing" | awk '{print $1}')"
+  zip_entries="$(printf '%s' "$zip_listing" | awk '{print $2}')"
+  if ! [[ "$zip_bytes" =~ ^[0-9]+$ && "$zip_entries" =~ ^[0-9]+$ ]] \
+     || [ "$zip_bytes" -gt "$MAX_UNZIPPED_BYTES" ] || [ "$zip_entries" -gt "$MAX_ZIP_ENTRIES" ]; then
+    echo "  [$name] archive too large or malformed ($zip_entries entries, $zip_bytes bytes)"
+    return 1
+  fi
+
   # --- unzip into empty subdir (zip-slip safe) ---
+  # Fresh dir per source: a previous source may have failed AFTER extracting
+  # (e.g. a rejected signature), and reusing its dir would make unzip prompt.
   local exdir="$WORKDIR/extract"
+  rm -rf "$exdir"
   mkdir -p "$exdir"
-  if ! unzip -q "$download_file" -d "$exdir"; then
+  if ! unzip -q "$download_file" -d "$exdir" < /dev/null; then
     echo "  [$name] unzip failed"
     return 1
   fi
@@ -268,6 +345,12 @@ process_source() {
 
   if [ -z "$apk_file" ]; then
     echo "  [$name] no .apk file found in archive"
+    return 1
+  fi
+
+  # --- signing certificate must be the pinned release key ---
+  if ! verify_apk_signature "$apk_file"; then
+    echo "  [$name] APK signature check FAILED — not signed with the pinned release certificate; refusing to serve it"
     return 1
   fi
 
@@ -299,6 +382,10 @@ if try_source "forgejo-anon" "$REPOSITORY_API" "" ""; then
 elif [ "$NO_APK_RELEASE" -eq 1 ]; then
   :
 elif [ -n "$REPOSITORY_TOKEN" ] && try_source "forgejo-token" "$REPOSITORY_API" "@$REPOSITORY_AUTH_HDR" ""; then
+  :
+elif [ "$NO_APK_RELEASE" -eq 1 ]; then
+  :
+elif try_source "codeberg-anon" "$CODEBERG_API" "" ""; then
   :
 elif [ "$NO_APK_RELEASE" -eq 1 ]; then
   :

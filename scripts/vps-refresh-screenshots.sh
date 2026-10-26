@@ -4,8 +4,9 @@ set -euo pipefail
 # =============================================================================
 # Screenshots Refresh Script — slovo-propovedi-landing
 # =============================================================================
-# Runs ON the VPS as root (also manually startable). Polls the mobile repo's
-# git tree for the canonical screenshots in assets/screenshots/, verifies each
+# Runs ON the VPS as the unprivileged `slovo` user inside a sandboxed systemd
+# unit (also manually startable). Polls the mobile repo's git tree (Forgejo,
+# then the Codeberg mirror, then the GitHub mirror) for the canonical screenshots in assets/screenshots/, verifies each
 # PNG (magic bytes + git-blob sha1), and atomically publishes them + a
 # manifest.json into the landing's read-only bind-mount dir. Triggered twice
 # daily by slovo-landing-refresh-shots.timer and once after each deploy.
@@ -16,17 +17,27 @@ set -euo pipefail
 # present on disk, the script exits 0 early without re-downloading anything.
 # =============================================================================
 
-# --- Env file (systemd timers provide no shell environment) ---
-# Reads KEY=VALUE lines from ENV_FILE (default /etc/default/slovo-landing) so
-# the timer-driven run gets its configuration. Path is overridable; missing
-# file is NOT an error — the required-variable check below fails fast instead.
+# --- Env file ---
+# The systemd unit passes /etc/default/slovo-landing via EnvironmentFile=. For
+# manual runs the same file is read here as DATA — never sourced as shell, so a
+# value containing `$(...)` cannot execute. Only known keys are taken, and a
+# variable already set in the environment wins. Missing file is NOT an error —
+# the required-variable check below fails fast instead.
 ENV_FILE="${ENV_FILE:-/etc/default/slovo-landing}"
-if [ -r "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_FILE"
-  set +a
-fi
+load_env_file() {
+  local key value
+  [ -r "$1" ] || return 0
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    case "$key" in
+      REPOSITORY_URL|MIRROR_CODEBERG_URL|MIRROR_GITHUB_LATEST_RELEASE_URL|MIRROR_GITHUB_SCREENSHOTS_RAW_URL) ;;
+      *) continue ;;
+    esac
+    [ -n "${!key:-}" ] && continue
+    printf -v "$key" '%s' "$value"
+    export "${key?}"
+  done < "$1"
+}
+load_env_file "$ENV_FILE"
 
 # --- Required configuration (fail fast, no production defaults) ---
 require_env() {
@@ -37,12 +48,23 @@ require_env() {
 }
 MISSING_ENV=0
 require_env REPOSITORY_URL
+require_env MIRROR_CODEBERG_URL
 require_env MIRROR_GITHUB_LATEST_RELEASE_URL
 require_env MIRROR_GITHUB_SCREENSHOTS_RAW_URL
 if [ "$MISSING_ENV" -ne 0 ]; then
   echo "ERROR: missing required environment variables — aborting" >&2
   exit 1
 fi
+
+# Every source URL must be plain https with a URL-safe charset: they are built
+# into API URLs and handed to curl, so anything else is a misconfiguration.
+HTTPS_URL_RE='^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$'
+for var in REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL; do
+  if ! printf '%s' "${!var}" | grep -Eq "$HTTPS_URL_RE"; then
+    echo "ERROR: $var must be an https:// URL (got '${!var}')" >&2
+    exit 1
+  fi
+done
 
 # --- Configuration (override via env) ---
 SCREENSHOTS_DIR="${SCREENSHOTS_DIR:-/slovo/landing/screenshots}"
@@ -51,10 +73,29 @@ TIMEOUT="${TIMEOUT:-120}"
 
 # Strip a single trailing slash so https://host//api/... can never be built.
 REPOSITORY_URL="${REPOSITORY_URL%/}"
+MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL%/}"
 MIRROR_GITHUB_LATEST_RELEASE_URL="${MIRROR_GITHUB_LATEST_RELEASE_URL%/}"
 MIRROR_GITHUB_SCREENSHOTS_RAW_URL="${MIRROR_GITHUB_SCREENSHOTS_RAW_URL%/}"
 REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/git/trees/main?recursive=true"
 REPOSITORY_RAW="$REPOSITORY_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/raw/assets/screenshots"
+# Codeberg runs Forgejo: same API shape as the primary repository.
+CODEBERG_API="$MIRROR_CODEBERG_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/git/trees/main?recursive=true"
+CODEBERG_RAW="$MIRROR_CODEBERG_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/raw/assets/screenshots"
+# GitHub tree API of the same repo, derived from the releases/latest URL
+# (…/repos/<owner>/<repo>/releases/latest → …/repos/<owner>/<repo>/git/trees/main).
+case "$MIRROR_GITHUB_LATEST_RELEASE_URL" in
+  */releases/latest) ;;
+  *)
+    echo "ERROR: MIRROR_GITHUB_LATEST_RELEASE_URL must end with /releases/latest (got '$MIRROR_GITHUB_LATEST_RELEASE_URL')" >&2
+    exit 1
+    ;;
+esac
+GITHUB_TREE_API="${MIRROR_GITHUB_LATEST_RELEASE_URL%/releases/latest}/git/trees/main?recursive=1"
+
+# https only, including every redirect, and an explicit User-Agent: GitHub's
+# API requires one, and Codeberg rejects some browser-like agents that a
+# local ~/.curlrc might inject.
+CURL_PROTO=(--proto '=https' --proto-redir '=https' --user-agent 'slovo-propovedi-landing-refresh')
 
 # --- Concurrency guard (single refresh at a time) ---
 mkdir -p "$SCREENSHOTS_DIR"
@@ -69,39 +110,33 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # --- Prerequisites (idempotent) ---
-NEED_INSTALL=0
+# Installed by vps-deploy.sh (as root); this unprivileged script only checks.
 for cmd in curl jq sha1sum sha256sum sort stat cmp; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    NEED_INSTALL=1
-    break
+    echo "ERROR: prerequisite '$cmd' is missing — re-run the landing deploy (vps-deploy.sh installs it)" >&2
+    exit 1
   fi
 done
-if [ "$NEED_INSTALL" -eq 1 ]; then
-  echo ">> Installing missing prerequisites..."
-  DEBIAN_FRONTEND=noninteractive apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl jq coreutils
-  for cmd in curl jq sha1sum sha256sum sort stat cmp; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-      echo "ERROR: prerequisite '$cmd' still missing after install" >&2
-      exit 1
-    fi
-  done
-fi
 
 # --- Token detection (never echoed) ---
-REPOSITORY_TOKEN=""
-if [ -n "${REPOSITORY_API_TOKEN:-}" ]; then
-  REPOSITORY_TOKEN="$(printf '%s' "$REPOSITORY_API_TOKEN" | tr -d '\r\n')"
-elif [ -r "$TOKEN_DIR/forgejo" ] && [ -s "$TOKEN_DIR/forgejo" ]; then
-  REPOSITORY_TOKEN="$(tr -d '\r\n' < "$TOKEN_DIR/forgejo")"
-fi
-
-GITHUB_TOKEN=""
-if [ -n "${GITHUB_MIRROR_TOKEN:-}" ]; then
-  GITHUB_TOKEN="$(printf '%s' "$GITHUB_MIRROR_TOKEN" | tr -d '\r\n')"
-elif [ -r "$TOKEN_DIR/github" ] && [ -s "$TOKEN_DIR/github" ]; then
-  GITHUB_TOKEN="$(tr -d '\r\n' < "$TOKEN_DIR/github")"
-fi
+# Order: env override, then the systemd credential (LoadCredential= hands the
+# root-only token file to this unprivileged unit), then TOKEN_DIR for manual
+# root runs. An empty file means "no token".
+read_token() {
+  local env_value="$1" name="$2" file
+  if [ -n "$env_value" ]; then
+    printf '%s' "$env_value" | tr -d '\r\n'
+    return
+  fi
+  for file in "${CREDENTIALS_DIRECTORY:-/nonexistent}/$name" "$TOKEN_DIR/$name"; do
+    if [ -r "$file" ] && [ -s "$file" ]; then
+      tr -d '\r\n' < "$file"
+      return
+    fi
+  done
+}
+REPOSITORY_TOKEN="$(read_token "${REPOSITORY_API_TOKEN:-}" forgejo)"
+GITHUB_TOKEN="$(read_token "${GITHUB_MIRROR_TOKEN:-}" github)"
 
 # --- Auth headers written to files (never in argv) ---
 # curl -H @file (>=7.55) reads the header from a file, keeping the token out of
@@ -140,10 +175,10 @@ fetch_tree() {
   # curl's -w '%{http_code}' prints "000" for a network failure and the real
   # code (e.g. "404") for an HTTP error even with -f, so the code alone
   # distinguishes the two cases.
-  local curl_args=(-fsS --max-time "$TIMEOUT" -o "$json_file" -w '%{http_code}')
+  local curl_args=(-fsS "${CURL_PROTO[@]}" --max-time "$TIMEOUT" -o "$json_file" -w '%{http_code}')
   if [ -n "$auth" ]; then curl_args+=(-H "$auth"); fi
   if [ -n "$extra" ]; then curl_args+=(-H "$extra"); fi
-  curl_args+=("$api")
+  curl_args+=(--url "$api")
 
   http_code="$(curl "${curl_args[@]}" 2>/dev/null || true)"
   if [ -z "$http_code" ]; then
@@ -203,6 +238,7 @@ fetch_tree() {
     .tree[]
     | select(.type == "blob")
     | select(.path | test("^assets/screenshots/[A-Za-z0-9_][A-Za-z0-9._-]*\\.png$"))
+    | select(.sha | test("^[0-9a-f]{40}$"))
     | [.path, .sha] | join(":")
   ' "$json_file" | sort -V > "$list_file"
   rm -f "$json_file"
@@ -219,9 +255,11 @@ if fetch_tree "forgejo-anon" "$REPOSITORY_API" "" "" "$REPOSITORY_RAW" "?ref=mai
   :
 elif [ -n "$REPOSITORY_TOKEN" ] && fetch_tree "forgejo-token" "$REPOSITORY_API" "@$REPOSITORY_AUTH_HDR" "" "$REPOSITORY_RAW" "?ref=main"; then
   :
-elif fetch_tree "github-anon" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
+elif fetch_tree "codeberg-anon" "$CODEBERG_API" "" "" "$CODEBERG_RAW" "?ref=main"; then
   :
-elif [ -n "$GITHUB_TOKEN" ] && fetch_tree "github-token" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
+elif fetch_tree "github-anon" "$GITHUB_TREE_API" "" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
+  :
+elif [ -n "$GITHUB_TOKEN" ] && fetch_tree "github-token" "$GITHUB_TREE_API" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
   :
 else
   echo "ERROR: no screenshot source succeeded; leaving previous state untouched" >&2
@@ -296,7 +334,7 @@ while IFS=: read -r path sha; do
 
   echo "  downloading: $stem-$sha8.png"
   local_file="$WORKDIR/$stem-$sha8.png"
-  if ! curl -fsSL --max-time "$TIMEOUT" -o "$local_file" "$RAW_BASE/$stem.png$RAW_SUFFIX" 2>/dev/null; then
+  if ! curl -fsSL "${CURL_PROTO[@]}" --max-time "$TIMEOUT" -o "$local_file" --url "$RAW_BASE/$stem.png$RAW_SUFFIX" 2>/dev/null; then
     echo "ERROR: download failed for $stem.png" >&2
     exit 1
   fi

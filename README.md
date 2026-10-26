@@ -12,18 +12,26 @@ APK-файлы не хранятся в этом репозитории. Скр�
 1. Дважды в день по таймеру `slovo-landing-refresh.timer` (04:30 / 16:30 UTC,
    `RandomizedDelaySec=30m`), а также пост-деплой и вручную через
    `refresh-apk.yml` (workflow_dispatch).
-2. Загружает последний релиз мобильного приложения с Forgejo (первичный) или
-   GitHub (резервный). Если уже обслуживаемая версия совпадает — выход 0 без
+2. Загружает последний релиз мобильного приложения: Forgejo (первичный), затем
+   зеркало Codeberg, затем зеркало GitHub — первый успешный источник побеждает. Если уже обслуживаемая версия совпадает — выход 0 без
    повторной загрузки ~30MB архива. Если у последнего релиза вообще нет
    APK-ассета (JS-only релиз, доставляется по OTA) — выход 0 с поясняющей
    строкой в логе: обновлять нечего, а фолбэк на зеркало отдал бы более
    старую версию как «последнюю».
-3. Извлекает APK, публикует `slovo-propovedi-vX.Y.Z.apk` и `latest.json`
+3. Проверяет архив (только https, лимит размера распаковки против zip-бомбы)
+   и **подпись APK**: `apksigner` должен подтвердить подпись, а SHA-256
+   сертификата — совпасть с закреплённым отпечатком release-ключа
+   (`APK_SIGNER_SHA256` в скрипте; тот же, что в `public/.well-known/assetlinks.json`
+   мобильного репозитория). APK с чужой подписью не публикуется ни из одного
+   источника — взлом хоста релизов или зеркала не подсунет подделку новым
+   пользователям. Отпечаток публичен, секретен только ключ; при смене ключа
+   подписи обновить его вместе с `assetlinks.json`.
+4. Извлекает APK, публикует `slovo-propovedi-vX.Y.Z.apk` и `latest.json`
    (версия, размер, SHA-256, дата) в `/slovo/landing/apk`, который nginx отдаёт
    с MIME-типом `application/vnd.android.package-archive`.
-4. Страница показывает версию, размер и SHA-256 с кнопкой копирования и QR-кодом
+5. Страница показывает версию, размер и SHA-256 с кнопкой копирования и QR-кодом
    для скачивания с телефона.
-5. Хранятся последние 3 версии (`KEEP_VERSIONS=3`); при ошибке сохраняется
+6. Хранятся последние 3 версии (`KEEP_VERSIONS=3`); при ошибке сохраняется
    предыдущее состояние.
 
 Ссылки на страницу релизов адаптивные: `assets/js/main.js` последовательно
@@ -37,8 +45,16 @@ GitHub и подставляет первую ответившую страни�
 `index.html`. CSP (`nginx.conf`) разрешает `connect-src` только для этих трёх
 хостов.
 
+Оба скрипта обновления работают **не от root**: systemd-юниты запускают их от
+пользователя `slovo` в песочнице (`ProtectSystem=strict`, запись только в свой
+каталог `apk/` или `screenshots/`, `NoNewPrivileges`, без capabilities).
+Конфигурация (`/etc/default/slovo-landing`) читается как данные
+(`EnvironmentFile=`), а не исполняется как shell. Зависимости (`curl`, `jq`,
+`unzip`, `apksigner`) ставит `vps-deploy.sh` от root.
+
 Токены для API (если репозитории приватные или rate-limited) хранятся в
-`/slovo/landing/tokens/` (root-only 0700).
+`/slovo/landing/tokens/` (root-only 0700) и передаются юнитам через systemd
+`LoadCredential=` — сам пользователь `slovo` и контейнер прочитать их не могут.
 
 ## Скриншоты
 
@@ -47,8 +63,8 @@ GitHub и подставляет первую ответившую страни�
 
 1. Дважды в день по таймеру `slovo-landing-refresh-shots.timer` (04:30 / 16:30 UTC,
    `RandomizedDelaySec=30m`), а также пост-деплой.
-2. Получает git-дерево мобильного репозитория (Forgejo — первичный, GitHub —
-   резервный) и выбирает канонические PNG из `assets/screenshots/`.
+2. Получает git-дерево мобильного репозитория (Forgejo — первичный, затем
+   зеркала Codeberg и GitHub) и выбирает канонические PNG из `assets/screenshots/`.
 3. Проверяет каждый файл: магические байты PNG и git-blob sha1
    (`sha1("blob <size>\0" + содержимое)` должен совпасть с sha из дерева).
 4. Публикует файлы с именами `<stem>-<sha8>.png` (sha в имени → immutable-кеш)
@@ -136,6 +152,18 @@ npm run dev                      # локальный просмотр на http
    | `VPS_SSH_USER` | SSH-пользователь на VPS |
    | `REPOSITORY_API_TOKEN` | (опционально) API-токен инстанса с репозиториями |
    | `GITHUB_MIRROR_TOKEN` | (опционально) токен GitHub API |
+
+   И переменные (Settings → Actions → Variables) — все обязательны, релиз
+   проверяет их до деплоя (URL — только `https://`):
+
+   | Переменная | Пример |
+   |---|---|
+   | `LANDING_HOSTNAME` / `WWW_HOSTNAME` | `slovo-propovedi.ru` / `www.slovo-propovedi.ru` |
+   | `WEB_HOSTNAME` / `DOCS_HOSTNAME` | `app.slovo-propovedi.ru` / `docs.slovo-propovedi.ru` |
+   | `REPOSITORY_URL` | `https://git.lightnode.ru` |
+   | `MIRROR_CODEBERG_URL` | `https://codeberg.org` |
+   | `MIRROR_GITHUB_LATEST_RELEASE_URL` | `https://api.github.com/repos/Slovo-Propovedi/slovo-propovedi-mobile/releases/latest` |
+   | `MIRROR_GITHUB_SCREENSHOTS_RAW_URL` | `https://raw.githubusercontent.com/Slovo-Propovedi/slovo-propovedi-mobile/main/assets/screenshots` |
 
 4. Раннер: `ubuntu-24.04`.
 5. DNS: A-записи для apex (`slovo-propovedi.ru`) и `www` указывают на VPS.

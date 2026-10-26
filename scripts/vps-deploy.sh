@@ -130,8 +130,20 @@ mkdir -p "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
 chown slovo:slovo "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
 chmod 0750 "$BASE_PATH" "$SRC_PATH"
 chmod 0755 "$BASE_PATH/apk" "$BASE_PATH/screenshots"
-# Tokens dir: root-only (refresh reads as root; slovo user cannot read tokens — intentional)
+# The refresh units run as `slovo`: content written by earlier root-run
+# refreshes (APKs, manifests, lock files) must become slovo-owned, or the
+# unprivileged refresh could not replace it.
+chown -R slovo:slovo "$BASE_PATH/apk" "$BASE_PATH/screenshots"
+# Tokens dir stays root-only: the units receive the files through systemd
+# LoadCredential=, so the slovo user (and the slovo-uid container) can never
+# read them directly. LoadCredential= fails on a missing file, so each token
+# file always exists — empty means "no token".
 install -d -m 0700 -o root -g root "$BASE_PATH/tokens"
+for token_name in forgejo github; do
+  if [ ! -e "$BASE_PATH/tokens/$token_name" ]; then
+    install -m 0600 -o root -g root /dev/null "$BASE_PATH/tokens/$token_name"
+  fi
+done
 
 # --- 2. Verify source code ---
 # Source code is transferred by the Forgejo workflow (tar+ssh) before this
@@ -158,7 +170,11 @@ echo ">> Writing Traefik labels..."
   printf 'traefik.http.routers.slovo-landing.entrypoints=web-secure\n'
   printf 'traefik.http.routers.slovo-landing.tls=true\n'
   printf 'traefik.http.routers.slovo-landing.tls.certResolver=default\n'
-  printf 'traefik.http.routers.slovo-landing.middlewares=slovo-landing-www-to-apex\n'
+  printf 'traefik.http.routers.slovo-landing.middlewares=slovo-landing-www-to-apex,slovo-landing-hsts\n'
+  # HSTS: browsers remember https-only for a year, so the first plain-http
+  # request cannot be intercepted. No includeSubDomains/preload: the other
+  # subdomains are owned by other services and opt in on their own.
+  printf 'traefik.http.middlewares.slovo-landing-hsts.headers.stsSeconds=31536000\n'
   printf 'traefik.http.middlewares.slovo-landing-www-to-apex.redirectregex.regex=https://www\\.([^/]+)/(.*)\n'
   # shellcheck disable=SC2016 # literal $1/$2 are Traefik replacement back-references
   printf 'traefik.http.middlewares.slovo-landing-www-to-apex.redirectregex.replacement=https://$1/$2\n'
@@ -241,22 +257,83 @@ else
   exit 1
 fi
 
-# --- 9. Install APK refresh units ---
+# --- 9. Refresh prerequisites (root) ---
+# The refresh scripts run unprivileged and cannot install packages, so the
+# deploy (root) provides them. apksigner verifies the APK signing certificate.
+echo ">> Ensuring refresh prerequisites..."
+REFRESH_PACKAGES="curl jq unzip coreutils apksigner"
+missing_cmd=0
+for cmd in curl jq unzip sha1sum sha256sum sort stat cmp apksigner; do
+  command -v "$cmd" >/dev/null 2>&1 || missing_cmd=1
+done
+if [ "$missing_cmd" -eq 1 ]; then
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq
+  # shellcheck disable=SC2086 # word splitting of the package list is intended
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $REFRESH_PACKAGES
+fi
+for cmd in curl jq unzip sha1sum sha256sum sort stat cmp apksigner; do
+  command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: prerequisite '$cmd' still missing after install" >&2; exit 1; }
+done
+echo "  prerequisites: OK"
+
+# Shared [Service] block for both refresh units: unprivileged user, config
+# parsed by systemd as data (EnvironmentFile=, never sourced as shell), tokens
+# via LoadCredential=, and a sandbox that leaves only the unit's own output dir
+# writable. MemoryDenyWriteExecute is deliberately absent: apksigner runs on a
+# JIT-compiling JVM.
+refresh_service_block() {
+  local write_dir="$1"
+  cat <<UNIT
+[Service]
+Type=oneshot
+User=slovo
+Group=slovo
+EnvironmentFile=/etc/default/slovo-landing
+Environment=HOME=/tmp
+LoadCredential=forgejo:$BASE_PATH/tokens/forgejo
+LoadCredential=github:$BASE_PATH/tokens/github
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=$write_dir
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0022
+UNIT
+}
+
+# --- 9a. Install APK refresh units ---
 # The refresh script ships inside the freshly-deployed container-src; install it
 # into the persistent BASE_PATH so it survives future deploys that replace src.
+# Root-owned and not writable by slovo, but executable by the slovo group.
 echo ">> Installing APK refresh units..."
-install -m 0750 "$SRC_PATH/scripts/vps-refresh-apk.sh" "$BASE_PATH/vps-refresh-apk.sh"
+install -m 0750 -o root -g slovo "$SRC_PATH/scripts/vps-refresh-apk.sh" "$BASE_PATH/vps-refresh-apk.sh"
 
-cat > /etc/systemd/system/slovo-landing-refresh.service <<EOF
+{
+  cat <<EOF
 [Unit]
 Description=Refresh slovo-landing APK from the latest mobile release
 After=network-online.target
 Wants=network-online.target
 
-[Service]
-Type=oneshot
-ExecStart=$BASE_PATH/vps-refresh-apk.sh
 EOF
+  refresh_service_block "$BASE_PATH/apk"
+  printf 'ExecStart=%s/vps-refresh-apk.sh\n' "$BASE_PATH"
+} > /etc/systemd/system/slovo-landing-refresh.service
 
 cat > /etc/systemd/system/slovo-landing-refresh.timer <<EOF
 [Unit]
@@ -279,18 +356,19 @@ echo "[OK] slovo-landing-refresh.timer enabled (twice daily)"
 # Same pattern as the APK refresh: the script ships in container-src and is
 # installed into the persistent BASE_PATH so it survives future deploys.
 echo ">> Installing screenshots refresh units..."
-install -m 0750 "$SRC_PATH/scripts/vps-refresh-screenshots.sh" "$BASE_PATH/vps-refresh-screenshots.sh"
+install -m 0750 -o root -g slovo "$SRC_PATH/scripts/vps-refresh-screenshots.sh" "$BASE_PATH/vps-refresh-screenshots.sh"
 
-cat > /etc/systemd/system/slovo-landing-refresh-shots.service <<EOF
+{
+  cat <<EOF
 [Unit]
 Description=Refresh slovo-landing screenshots from the mobile repo
 After=network-online.target
 Wants=network-online.target
 
-[Service]
-Type=oneshot
-ExecStart=$BASE_PATH/vps-refresh-screenshots.sh
 EOF
+  refresh_service_block "$BASE_PATH/screenshots"
+  printf 'ExecStart=%s/vps-refresh-screenshots.sh\n' "$BASE_PATH"
+} > /etc/systemd/system/slovo-landing-refresh-shots.service
 
 cat > /etc/systemd/system/slovo-landing-refresh-shots.timer <<EOF
 [Unit]
