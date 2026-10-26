@@ -52,7 +52,7 @@ if (/^\d+\.\d+\.\d+$/.test(versionArg)) {
 // Resolved BEFORE any file is mutated so a missing URL can never leave the tree
 // half-bumped. A version bump is a local bookkeeping operation: it must not
 // depend on deployment env. A reachable `origin` remote wins (forks link to
-// their own repo); REPOSITORY_URL is only an optional fallback for checkouts
+// their own repo); REPOSITORY_URL + REPOSITORY_ORG are only an optional fallback for checkouts
 // without an `origin` remote (CI tarballs, mirrors).
 const resolveRepoUrl = () => {
   try {
@@ -67,9 +67,11 @@ const resolveRepoUrl = () => {
     // No origin remote — fall through to the env fallback.
   }
 
+  // Same org variables as CI (REPOSITORY_URL + REPOSITORY_ORG); both needed.
   const repositoryUrl = process.env.REPOSITORY_URL
-  if (repositoryUrl) {
-    return `${repositoryUrl.replace(/\/+$/, '')}/Slovo_Propovedi/slovo-propovedi-landing`
+  const repositoryOrg = process.env.REPOSITORY_ORG
+  if (repositoryUrl && repositoryOrg) {
+    return `${repositoryUrl.replace(/\/+$/, '')}/${repositoryOrg}/slovo-propovedi-landing`
   }
 
   return null

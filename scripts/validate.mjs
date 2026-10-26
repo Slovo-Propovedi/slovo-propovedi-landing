@@ -64,8 +64,8 @@ if (!html) {
     if (!new RegExp(`id="${id}"`).test(html)) bad(`index.html: missing id="${id}"`)
   }
 
-  if (!/href="https:\/\/git\.lightnode\.ru\/Slovo_Propovedi\/slovo-propovedi-mobile\/releases"/.test(html)) {
-    bad('index.html: missing forgejo releases fallback link')
+  if (!html.includes('href="__REPOSITORY_URL__/__REPOSITORY_ORG__/__MOBILE_REPOSITORY_NAME__/releases"')) {
+    bad('index.html: missing forgejo releases fallback link (placeholder form)')
   }
 
   // No external resource references: src attributes and <link> href attributes
@@ -381,6 +381,48 @@ if (html) {
   }
 }
 
+// --- 8b. Repository coordinates come from build args, never literals ---
+// Org variables REPOSITORY_URL/_ORG, MIRROR_CODEBERG_URL/_ORG, MIRROR_GITHUB_ORG
+// and MOBILE_REPOSITORY_NAME are baked by the Dockerfile; a literal host or org
+// in the served files would silently drift from the organisation settings.
+const REPO_PLACEHOLDERS = [
+  'REPOSITORY_URL',
+  'REPOSITORY_ORG',
+  'MIRROR_CODEBERG_URL',
+  'MIRROR_CODEBERG_ORG',
+  'MIRROR_GITHUB_ORG',
+  'MOBILE_REPOSITORY_NAME',
+]
+for (const file of ['index.html', 'assets/js/main.js', 'nginx.conf']) {
+  if (!existsSync(file)) continue
+  const text = read(file)
+  if (/git\.lightnode\.ru|codeberg\.org|Slovo[_-]Propovedi|slovo-propovedi-mobile/.test(text)) {
+    bad(`${file}: literal repository host/org/name remains (use the __REPOSITORY_*__ / __MIRROR_*__ placeholders)`)
+  }
+}
+if (existsSync('nginx.conf') && !read('nginx.conf').includes("connect-src 'self' __REPOSITORY_URL__ __MIRROR_CODEBERG_URL__ https://api.github.com;")) {
+  bad('nginx.conf: CSP connect-src must be the repository placeholders + https://api.github.com')
+}
+if (existsSync('Dockerfile')) {
+  const dockerfile = read('Dockerfile')
+  for (const name of REPO_PLACEHOLDERS) {
+    if (!new RegExp(`^ARG ${name}$`, 'm').test(dockerfile)) {
+      bad(`Dockerfile: ARG ${name} must be declared without a default`)
+    }
+    if (!dockerfile.includes(`-e "s|__${name}__|\${${name}}|g"`)) {
+      bad(`Dockerfile: missing sed replacing __${name}__`)
+    }
+  }
+}
+if (existsSync('scripts/vps-deploy.sh')) {
+  const deploy = read('scripts/vps-deploy.sh')
+  for (const name of REPO_PLACEHOLDERS) {
+    if (!deploy.includes(`--build-arg ${name}=`)) {
+      bad(`scripts/vps-deploy.sh: missing --build-arg ${name}=`)
+    }
+  }
+}
+
 if (existsSync('scripts/vps-deploy.sh')) {
   const deploy = read('scripts/vps-deploy.sh')
   if (!deploy.includes('require_valid_hostname WEB_HOSTNAME')) {
@@ -425,6 +467,9 @@ if (!existsSync('.env.example')) {
   if (!example.includes('WEB_HOSTNAME')) bad('.env.example: missing WEB_HOSTNAME')
   if (!example.includes('LANDING_HOSTNAME')) bad('.env.example: missing LANDING_HOSTNAME')
   if (!example.includes('DOCS_HOSTNAME')) bad('.env.example: missing DOCS_HOSTNAME')
+  for (const name of ['REPOSITORY_ORG', 'MIRROR_CODEBERG_ORG', 'MIRROR_GITHUB_ORG', 'MOBILE_REPOSITORY_NAME']) {
+    if (!example.includes(name)) bad(`.env.example: missing ${name}`)
+  }
 }
 
 if (!existsSync('.gitignore')) {

@@ -23,8 +23,22 @@ const DEFAULTS = {
   PORT: 8377,
 }
 
-// Hostname variables that must be provided; PORT is optional.
-const REQUIRED_KEYS = ['WEB_HOSTNAME', 'LANDING_HOSTNAME', 'DOCS_HOSTNAME']
+// Mobile repository coordinates baked into index.html / main.js (same names as
+// the Dockerfile build args and the Forgejo org variables).
+const REPO_KEYS = [
+  'REPOSITORY_URL',
+  'REPOSITORY_ORG',
+  'MIRROR_CODEBERG_URL',
+  'MIRROR_CODEBERG_ORG',
+  'MIRROR_GITHUB_ORG',
+  'MOBILE_REPOSITORY_NAME',
+]
+const ORIGIN_KEYS = new Set(['REPOSITORY_URL', 'MIRROR_CODEBERG_URL'])
+const ORIGIN_PATTERN = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?$/
+const SLUG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+// Variables that must be provided; PORT is optional.
+const REQUIRED_KEYS = ['WEB_HOSTNAME', 'LANDING_HOSTNAME', 'DOCS_HOSTNAME', ...REPO_KEYS]
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -108,10 +122,14 @@ function resolveConfig() {
   const docs = pick('DOCS_HOSTNAME')
   const port = pick('PORT')
 
+  const repo = Object.fromEntries(REPO_KEYS.map((name) => [name, pick(name)]))
+
   return {
     webHostname: web.value,
     landingHostname: landing.value,
     docsHostname: docs.value,
+    repo: Object.fromEntries(REPO_KEYS.map((name) => [name, repo[name].value])),
+    repoSources: Object.fromEntries(REPO_KEYS.map((name) => [name, repo[name].source])),
     port: parsePort(port.value),
     sources: {
       WEB_HOSTNAME: web.source,
@@ -136,6 +154,15 @@ function loadConfig() {
     validateHostname(config.webHostname, 'WEB_HOSTNAME', config.sources.WEB_HOSTNAME)
     validateHostname(config.landingHostname, 'LANDING_HOSTNAME', config.sources.LANDING_HOSTNAME)
     validateHostname(config.docsHostname, 'DOCS_HOSTNAME', config.sources.DOCS_HOSTNAME)
+    for (const name of REPO_KEYS) {
+      const pattern = ORIGIN_KEYS.has(name) ? ORIGIN_PATTERN : SLUG_PATTERN
+      if (!pattern.test(config.repo[name])) {
+        throw new Error(
+          `${name} (from ${config.repoSources[name]}) is invalid: "${config.repo[name]}" — ` +
+            (ORIGIN_KEYS.has(name) ? 'bare https origin, no path' : 'plain org/repo slug')
+        )
+      }
+    }
     return config
   } catch (err) {
     console.error(err.message)
@@ -168,6 +195,10 @@ function resolvePublicPath(pathname) {
   if (relative === 'sitemap.xml') {
     return { kind: 'templated', path: resolved, type: 'application/xml; charset=utf-8' }
   }
+  // main.js carries the repository placeholders, baked at image build.
+  if (relative === 'assets/js/main.js') {
+    return { kind: 'templated', path: resolved, type: MIME_TYPES['.js'] }
+  }
   if (relative.startsWith('assets/')) {
     return { kind: 'file', path: resolved }
   }
@@ -199,6 +230,11 @@ function redirectToWeb(res) {
   res.end()
 }
 
+// Substitute the repository placeholders (__REPOSITORY_URL__ etc.).
+function substituteRepo(text) {
+  return REPO_KEYS.reduce((acc, name) => acc.replaceAll(`__${name}__`, CONFIG.repo[name]), text)
+}
+
 function serveIndex(res) {
   let html
   try {
@@ -207,7 +243,7 @@ function serveIndex(res) {
     sendStatus(res, 404, 'Not Found')
     return
   }
-  const body = html
+  const body = substituteRepo(html)
     .replaceAll('__LANDING_HOSTNAME__', CONFIG.landingHostname)
     .replaceAll('__DOCS_HOSTNAME__', CONFIG.docsHostname)
   sendBody(res, 200, body, 'text/html; charset=utf-8')
@@ -221,7 +257,7 @@ function serveTemplated(res, filePath, contentType) {
     sendStatus(res, 404, 'Not Found')
     return
   }
-  sendBody(res, 200, text.replaceAll('__LANDING_HOSTNAME__', CONFIG.landingHostname), contentType)
+  sendBody(res, 200, substituteRepo(text).replaceAll('__LANDING_HOSTNAME__', CONFIG.landingHostname), contentType)
 }
 
 function serveStatic(res, filePath) {

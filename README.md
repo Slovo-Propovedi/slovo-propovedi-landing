@@ -39,8 +39,8 @@ APK-файлы не хранятся в этом репозитории. Скр�
    предыдущее состояние.
 
 Ссылки на страницу релизов адаптивные: `assets/js/main.js` последовательно
-проверяет доступность API Forgejo (`git.lightnode.ru`), затем Codeberg, затем
-GitHub и подставляет первую ответившую страницу релизов в кнопки «Другие
+проверяет доступность API Forgejo (`REPOSITORY_URL`), затем Codeberg
+(`MIRROR_CODEBERG_URL`), затем GitHub и подставляет первую ответившую страницу релизов в кнопки «Другие
 версии» и «Релизы» (а также в резервный href кнопки скачивания, пока
 `latest.json` не заменил его на APK). Проверка — GET с `cache: 'no-store'` и
 таймаутом 4 с на источник; ответом считается любой HTTP-статус (404 — «релизов
@@ -49,6 +49,15 @@ GitHub и подставляет первую ответившую страни�
 `index.html`. CSP (`nginx.conf`) разрешает `connect-src` только для этих трёх
 хостов.
 
+Адреса и названия репозитория не зашиты в код: ссылки в `index.html`, источники
+в `main.js` и хосты в CSP `nginx.conf` записаны плейсхолдерами
+(`__REPOSITORY_URL__`, `__REPOSITORY_ORG__`, `__MIRROR_CODEBERG_URL__`,
+`__MIRROR_CODEBERG_ORG__`, `__MIRROR_GITHUB_ORG__`, `__MOBILE_REPOSITORY_NAME__`),
+которые Dockerfile подставляет при сборке из одноимённых переменных организации
+(с проверкой формата: хосты — голые `https://`-origin, названия — slug). Скрипты
+обновления на VPS собирают URL API из тех же переменных, а dev-сервер
+подставляет их из `.env`. `validate.mjs` не даёт вернуть литеральные хосты.
+
 Оба скрипта обновления работают **не от root**: systemd-юниты запускают их от
 пользователя `slovo` в песочнице (`ProtectSystem=strict`, запись только в свой
 каталог `apk/` или `screenshots/`, `NoNewPrivileges`, без capabilities).
@@ -56,9 +65,10 @@ GitHub и подставляет первую ответившую страни�
 (`EnvironmentFile=`), а не исполняется как shell. Зависимости (`curl`, `jq`,
 `unzip`, `apksigner`) ставит `vps-deploy.sh` от root.
 
-Токены для API (если репозитории приватные или rate-limited) хранятся в
-`/slovo/landing/tokens/` (root-only 0700) и передаются юнитам через systemd
-`LoadCredential=` — сам пользователь `slovo` и контейнер прочитать их не могут.
+Репозитории мобильного приложения публичные, поэтому скрипты читают релизы и
+дерево файлов анонимно — API-токены не нужны и не хранятся. Оставшийся от
+старых деплоев каталог `/slovo/landing/tokens/` не используется, его можно
+удалить.
 
 ## Скриншоты
 
@@ -154,20 +164,19 @@ npm run dev                      # локальный просмотр на http
    | `VPS_SSH_KNOWN_HOSTS` | Закреплённый ключ хоста VPS: вывод `ssh-keyscan <VPS_HOST> 2>/dev/null`, сверенный с отпечатками на сервере. Без него деплой падает: `ssh-keyscan` на каждом прогоне не используется, так как не защищает от подмены сервера |
    | `VPS_HOST` | Хостнейм или IP VPS |
    | `VPS_SSH_USER` | SSH-пользователь на VPS |
-   | `REPOSITORY_API_TOKEN` | (опционально) API-токен инстанса с репозиториями |
-   | `GITHUB_MIRROR_TOKEN` | (опционально) токен GitHub API |
 
-   И переменные (Settings → Actions → Variables) — все обязательны, релиз
-   проверяет их до деплоя (URL — только `https://`):
+   И переменные организации (Settings → Actions → Variables) — все
+   обязательны, релиз проверяет их формат до деплоя:
 
    | Переменная | Пример |
    |---|---|
    | `LANDING_HOSTNAME` / `WWW_HOSTNAME` | `slovo-propovedi.ru` / `www.slovo-propovedi.ru` |
    | `WEB_HOSTNAME` / `DOCS_HOSTNAME` | `app.slovo-propovedi.ru` / `docs.slovo-propovedi.ru` |
-   | `REPOSITORY_URL` | `https://git.lightnode.ru` |
-   | `MIRROR_CODEBERG_URL` | `https://codeberg.org` |
-   | `MIRROR_GITHUB_LATEST_RELEASE_URL` | `https://api.github.com/repos/Slovo-Propovedi/slovo-propovedi-mobile/releases/latest` |
-   | `MIRROR_GITHUB_SCREENSHOTS_RAW_URL` | `https://raw.githubusercontent.com/Slovo-Propovedi/slovo-propovedi-mobile/main/assets/screenshots` |
+   | `REPOSITORY_URL` / `REPOSITORY_ORG` | `https://git.lightnode.ru` / `Slovo_Propovedi` |
+   | `MIRROR_CODEBERG_URL` / `MIRROR_CODEBERG_ORG` | `https://codeberg.org` / `Slovo_Propovedi` |
+   | `MIRROR_GITHUB_ORG` | `Slovo-Propovedi` (на GitHub — через дефис) |
+   | `MOBILE_REPOSITORY_NAME` | `slovo-propovedi-mobile` |
+   | `TRAEFIK_NETWORK` / `TRAEFIK_SERVICE` / `BUILDX_BUILDER` | `traefik` / `slovo-traefik.service` / `slovo-constrained` — имена из playbook |
    | `APK_SIGNER_SHA256` | `43f8df039d37ade81a17b7ae8edf8e431c7fd87ba160fd8c09c6281a54706d9b` — SHA-256 сертификата release-ключа (64 hex, как печатает `apksigner verify --print-certs`); при смене ключа — список через запятую |
 
 4. Раннер: `ubuntu-24.04`.

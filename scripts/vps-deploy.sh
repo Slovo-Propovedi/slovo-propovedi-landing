@@ -28,16 +28,28 @@ set -euo pipefail
 DEPLOY_TAG="${DEPLOY_TAG:?ERROR: DEPLOY_TAG is required (e.g. v1.0.0)}"
 LANDING_HOSTNAME="${LANDING_HOSTNAME:?ERROR: LANDING_HOSTNAME is required (e.g. slovo-propovedi.ru)}"
 WWW_HOSTNAME="${WWW_HOSTNAME:?ERROR: WWW_HOSTNAME is required (e.g. www.example.com)}"
+# Mobile repository coordinates (Forgejo org variables) — baked into the image
+# (release links, release-host probes, CSP). The Dockerfile validates them.
+REPOSITORY_URL="${REPOSITORY_URL:?ERROR: REPOSITORY_URL is required (e.g. https://git.example.com)}"
+REPOSITORY_ORG="${REPOSITORY_ORG:?ERROR: REPOSITORY_ORG is required (Forgejo org variable)}"
+MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL:?ERROR: MIRROR_CODEBERG_URL is required (Forgejo org variable)}"
+MIRROR_CODEBERG_ORG="${MIRROR_CODEBERG_ORG:?ERROR: MIRROR_CODEBERG_ORG is required (Forgejo org variable)}"
+MIRROR_GITHUB_ORG="${MIRROR_GITHUB_ORG:?ERROR: MIRROR_GITHUB_ORG is required (Forgejo org variable)}"
+MOBILE_REPOSITORY_NAME="${MOBILE_REPOSITORY_NAME:?ERROR: MOBILE_REPOSITORY_NAME is required (Forgejo org variable)}"
 BASE_PATH="${BASE_PATH:-/slovo/landing}"
 SRC_PATH="${SRC_PATH:-/slovo/landing/container-src}"
-BUILDER_NAME="${BUILDER_NAME:-slovo-constrained}"
 IMAGE_NAME="${IMAGE_NAME:-slovo-landing:latest}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 CONTAINER_NETWORK="${CONTAINER_NETWORK:-slovo-landing}"
-TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-traefik}"
 MEMORY_LIMIT="${MEMORY_LIMIT:-64m}"
 STOP_GRACE="${STOP_GRACE:-3}"
-TRAEFIK_SERVICE="${TRAEFIK_SERVICE:-slovo-traefik.service}"
+
+# Shared infrastructure names — owned by the slovo-propovedi playbook, passed
+# by the release workflow from Forgejo org variables. No defaults: a renamed
+# network/service/builder must fail loudly instead of using a stale name.
+TRAEFIK_NETWORK="${TRAEFIK_NETWORK:?ERROR: TRAEFIK_NETWORK is required (Forgejo org variable)}"
+TRAEFIK_SERVICE="${TRAEFIK_SERVICE:?ERROR: TRAEFIK_SERVICE is required (Forgejo org variable)}"
+BUILDER_NAME="${BUILDX_BUILDER:?ERROR: BUILDX_BUILDER is required (Forgejo org variable)}"
 
 # Shared infrastructure this deploy depends on but does NOT own (playbook-managed).
 REQUIRED_SERVICES="$TRAEFIK_SERVICE"
@@ -134,16 +146,9 @@ chmod 0755 "$BASE_PATH/apk" "$BASE_PATH/screenshots"
 # refreshes (APKs, manifests, lock files) must become slovo-owned, or the
 # unprivileged refresh could not replace it.
 chown -R slovo:slovo "$BASE_PATH/apk" "$BASE_PATH/screenshots"
-# Tokens dir stays root-only: the units receive the files through systemd
-# LoadCredential=, so the slovo user (and the slovo-uid container) can never
-# read them directly. LoadCredential= fails on a missing file, so each token
-# file always exists — empty means "no token".
-install -d -m 0700 -o root -g root "$BASE_PATH/tokens"
-for token_name in forgejo github; do
-  if [ ! -e "$BASE_PATH/tokens/$token_name" ]; then
-    install -m 0600 -o root -g root /dev/null "$BASE_PATH/tokens/$token_name"
-  fi
-done
+# The mobile repositories are public, so the refresh units read release
+# metadata anonymously — no API tokens are provisioned (a leftover
+# $BASE_PATH/tokens dir from older deploys is unused and safe to delete).
 
 # --- 2. Verify source code ---
 # Source code is transferred by the Forgejo workflow (tar+ssh) before this
@@ -197,6 +202,12 @@ docker buildx build \
   --build-arg WEB_HOSTNAME="$WEB_HOSTNAME" \
   --build-arg LANDING_HOSTNAME="$LANDING_HOSTNAME" \
   --build-arg DOCS_HOSTNAME="$DOCS_HOSTNAME" \
+  --build-arg REPOSITORY_URL="$REPOSITORY_URL" \
+  --build-arg REPOSITORY_ORG="$REPOSITORY_ORG" \
+  --build-arg MIRROR_CODEBERG_URL="$MIRROR_CODEBERG_URL" \
+  --build-arg MIRROR_CODEBERG_ORG="$MIRROR_CODEBERG_ORG" \
+  --build-arg MIRROR_GITHUB_ORG="$MIRROR_GITHUB_ORG" \
+  --build-arg MOBILE_REPOSITORY_NAME="$MOBILE_REPOSITORY_NAME" \
   "$SRC_PATH"
 
 # --- 6. Write systemd unit ---
@@ -277,8 +288,8 @@ done
 echo "  prerequisites: OK"
 
 # Shared [Service] block for both refresh units: unprivileged user, config
-# parsed by systemd as data (EnvironmentFile=, never sourced as shell), tokens
-# via LoadCredential=, and a sandbox that leaves only the unit's own output dir
+# parsed by systemd as data (EnvironmentFile=, never sourced as shell), and a
+# sandbox that leaves only the unit's own output dir
 # writable. MemoryDenyWriteExecute is deliberately absent: apksigner runs on a
 # JIT-compiling JVM.
 refresh_service_block() {
@@ -290,8 +301,6 @@ User=slovo
 Group=slovo
 EnvironmentFile=/etc/default/slovo-landing
 Environment=HOME=/tmp
-LoadCredential=forgejo:$BASE_PATH/tokens/forgejo
-LoadCredential=github:$BASE_PATH/tokens/github
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=

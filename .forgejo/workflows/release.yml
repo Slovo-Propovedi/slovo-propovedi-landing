@@ -60,18 +60,26 @@ jobs:
         run: |
           set -e
           missing=0
-          for var_name in LANDING_HOSTNAME WEB_HOSTNAME DOCS_HOSTNAME WWW_HOSTNAME REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL APK_SIGNER_SHA256; do
+          for var_name in LANDING_HOSTNAME WEB_HOSTNAME DOCS_HOSTNAME WWW_HOSTNAME REPOSITORY_URL REPOSITORY_ORG MIRROR_CODEBERG_URL MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME APK_SIGNER_SHA256 TRAEFIK_NETWORK TRAEFIK_SERVICE BUILDX_BUILDER; do
             if [ -z "${!var_name}" ]; then
               echo "::error::$var_name is not set — add it as an org/repo Actions variable"
               missing=1
             fi
           done
-          # The URL vars land in /etc/default/slovo-landing (read by systemd
-          # and the refresh scripts) — only plain https URLs with a URL-safe
-          # charset are accepted, so no value can carry quotes, spaces or `$`.
-          for var_name in REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL; do
-            if [ -n "${!var_name}" ] && ! printf '%s' "${!var_name}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$'; then
-              echo "::error::$var_name must be a plain https:// URL (got '${!var_name}')"
+          # Repository coordinates land in /etc/default/slovo-landing (read by
+          # systemd and the refresh scripts) and are baked into the image — the
+          # hosts must be bare https origins and the org/repo names plain slugs,
+          # so no value can carry quotes, spaces or `$` (same contract as the
+          # Dockerfile and the refresh scripts).
+          for var_name in REPOSITORY_URL MIRROR_CODEBERG_URL; do
+            if [ -n "${!var_name}" ] && ! printf '%s' "${!var_name}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
+              echo "::error::$var_name must be a bare https origin, no path (got '${!var_name}')"
+              missing=1
+            fi
+          done
+          for var_name in REPOSITORY_ORG MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME; do
+            if [ -n "${!var_name}" ] && ! printf '%s' "${!var_name}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+              echo "::error::$var_name must be a plain org/repo slug (got '${!var_name}')"
               missing=1
             fi
           done
@@ -84,17 +92,22 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
-          echo "All required vars present: LANDING_HOSTNAME=$LANDING_HOSTNAME WWW_HOSTNAME=$WWW_HOSTNAME WEB_HOSTNAME=$WEB_HOSTNAME DOCS_HOSTNAME=$DOCS_HOSTNAME REPOSITORY_URL=$REPOSITORY_URL MIRROR_CODEBERG_URL=$MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL=$MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL=$MIRROR_GITHUB_SCREENSHOTS_RAW_URL"
+          echo "All required vars present: LANDING_HOSTNAME=$LANDING_HOSTNAME WWW_HOSTNAME=$WWW_HOSTNAME WEB_HOSTNAME=$WEB_HOSTNAME DOCS_HOSTNAME=$DOCS_HOSTNAME REPOSITORY_URL=$REPOSITORY_URL/$REPOSITORY_ORG MIRROR_CODEBERG_URL=$MIRROR_CODEBERG_URL/$MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG=$MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME=$MOBILE_REPOSITORY_NAME"
         env:
           LANDING_HOSTNAME: ${{ vars.LANDING_HOSTNAME }}
           WEB_HOSTNAME: ${{ vars.WEB_HOSTNAME }}
           DOCS_HOSTNAME: ${{ vars.DOCS_HOSTNAME }}
           WWW_HOSTNAME: ${{ vars.WWW_HOSTNAME }}
           REPOSITORY_URL: ${{ vars.REPOSITORY_URL }}
+          REPOSITORY_ORG: ${{ vars.REPOSITORY_ORG }}
           MIRROR_CODEBERG_URL: ${{ vars.MIRROR_CODEBERG_URL }}
-          MIRROR_GITHUB_LATEST_RELEASE_URL: ${{ vars.MIRROR_GITHUB_LATEST_RELEASE_URL }}
-          MIRROR_GITHUB_SCREENSHOTS_RAW_URL: ${{ vars.MIRROR_GITHUB_SCREENSHOTS_RAW_URL }}
+          MIRROR_CODEBERG_ORG: ${{ vars.MIRROR_CODEBERG_ORG }}
+          MIRROR_GITHUB_ORG: ${{ vars.MIRROR_GITHUB_ORG }}
+          MOBILE_REPOSITORY_NAME: ${{ vars.MOBILE_REPOSITORY_NAME }}
           APK_SIGNER_SHA256: ${{ vars.APK_SIGNER_SHA256 }}
+          TRAEFIK_NETWORK: ${{ vars.TRAEFIK_NETWORK }}
+          TRAEFIK_SERVICE: ${{ vars.TRAEFIK_SERVICE }}
+          BUILDX_BUILDER: ${{ vars.BUILDX_BUILDER }}
 
       - name: Setup SSH
         env:
@@ -130,23 +143,29 @@ jobs:
           WEB_HOSTNAME: ${{ vars.WEB_HOSTNAME }}
           DOCS_HOSTNAME: ${{ vars.DOCS_HOSTNAME }}
           REPOSITORY_URL: ${{ vars.REPOSITORY_URL }}
+          REPOSITORY_ORG: ${{ vars.REPOSITORY_ORG }}
           MIRROR_CODEBERG_URL: ${{ vars.MIRROR_CODEBERG_URL }}
-          MIRROR_GITHUB_LATEST_RELEASE_URL: ${{ vars.MIRROR_GITHUB_LATEST_RELEASE_URL }}
-          MIRROR_GITHUB_SCREENSHOTS_RAW_URL: ${{ vars.MIRROR_GITHUB_SCREENSHOTS_RAW_URL }}
+          MIRROR_CODEBERG_ORG: ${{ vars.MIRROR_CODEBERG_ORG }}
+          MIRROR_GITHUB_ORG: ${{ vars.MIRROR_GITHUB_ORG }}
+          MOBILE_REPOSITORY_NAME: ${{ vars.MOBILE_REPOSITORY_NAME }}
           APK_SIGNER_SHA256: ${{ vars.APK_SIGNER_SHA256 }}
+          TRAEFIK_NETWORK: ${{ vars.TRAEFIK_NETWORK }}
+          TRAEFIK_SERVICE: ${{ vars.TRAEFIK_SERVICE }}
+          BUILDX_BUILDER: ${{ vars.BUILDX_BUILDER }}
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
           # Write /etc/default/slovo-landing: the env file the timer-driven
-          # refresh scripts (vps-refresh-apk / vps-refresh-screenshots) source
-          # on each run. Idempotent — rewritten on every deploy so the vars
+          # refresh units read on each run (EnvironmentFile=). Idempotent — rewritten on every deploy so the vars
           # never drift from Forgejo org settings. Values were shape-checked in
           # "Validate required vars"; systemd reads the file as data
           # (EnvironmentFile=), the scripts parse it without sourcing.
           ssh "$SSH_TARGET" "sudo tee /etc/default/slovo-landing > /dev/null" <<EOF
           REPOSITORY_URL=$REPOSITORY_URL
+          REPOSITORY_ORG=$REPOSITORY_ORG
           MIRROR_CODEBERG_URL=$MIRROR_CODEBERG_URL
-          MIRROR_GITHUB_LATEST_RELEASE_URL=$MIRROR_GITHUB_LATEST_RELEASE_URL
-          MIRROR_GITHUB_SCREENSHOTS_RAW_URL=$MIRROR_GITHUB_SCREENSHOTS_RAW_URL
+          MIRROR_CODEBERG_ORG=$MIRROR_CODEBERG_ORG
+          MIRROR_GITHUB_ORG=$MIRROR_GITHUB_ORG
+          MOBILE_REPOSITORY_NAME=$MOBILE_REPOSITORY_NAME
           APK_SIGNER_SHA256=$APK_SIGNER_SHA256
           EOF
           # Transfer source code (runner already has the tagged checkout).
@@ -159,26 +178,20 @@ jobs:
           # slovo-propovedi playbook; the script only verifies it.
           # Every value is shell-quoted for the remote shell with printf %q, so
           # a quote in a tag or variable can never break out of its argument.
-          REMOTE_ENV="$(printf 'DEPLOY_TAG=%q LANDING_HOSTNAME=%q WWW_HOSTNAME=%q WEB_HOSTNAME=%q DOCS_HOSTNAME=%q REPOSITORY_URL=%q' \
-            "$DEPLOY_TAG" "$LANDING_HOSTNAME" "$WWW_HOSTNAME" "$WEB_HOSTNAME" "$DOCS_HOSTNAME" "$REPOSITORY_URL")"
+          REMOTE_ENV="$(printf 'DEPLOY_TAG=%q LANDING_HOSTNAME=%q WWW_HOSTNAME=%q WEB_HOSTNAME=%q DOCS_HOSTNAME=%q REPOSITORY_URL=%q REPOSITORY_ORG=%q MIRROR_CODEBERG_URL=%q MIRROR_CODEBERG_ORG=%q MIRROR_GITHUB_ORG=%q MOBILE_REPOSITORY_NAME=%q TRAEFIK_NETWORK=%q TRAEFIK_SERVICE=%q BUILDX_BUILDER=%q' \
+            "$DEPLOY_TAG" "$LANDING_HOSTNAME" "$WWW_HOSTNAME" "$WEB_HOSTNAME" "$DOCS_HOSTNAME" \
+            "$REPOSITORY_URL" "$REPOSITORY_ORG" "$MIRROR_CODEBERG_URL" "$MIRROR_CODEBERG_ORG" "$MIRROR_GITHUB_ORG" "$MOBILE_REPOSITORY_NAME" \
+            "$TRAEFIK_NETWORK" "$TRAEFIK_SERVICE" "$BUILDX_BUILDER")"
           ssh "$SSH_TARGET" "chmod +x /tmp/vps-deploy.sh && $REMOTE_ENV bash /tmp/vps-deploy.sh"
 
-      - name: Provision tokens and refresh APK
+      - name: Refresh APK
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
-          # Tokens come in through env, never pasted into the script text.
-          REPOSITORY_API_TOKEN: ${{ secrets.REPOSITORY_API_TOKEN }}
-          GITHUB_MIRROR_TOKEN: ${{ secrets.GITHUB_MIRROR_TOKEN }}
         run: |
           SSH_TARGET="$VPS_SSH_USER@$VPS_HOST"
-          # Optional tokens piped via stdin (never in process args)
-          if [ -n "$REPOSITORY_API_TOKEN" ]; then
-            printf '%s' "$REPOSITORY_API_TOKEN" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/forgejo"
-          fi
-          if [ -n "$GITHUB_MIRROR_TOKEN" ]; then
-            printf '%s' "$GITHUB_MIRROR_TOKEN" | ssh "$SSH_TARGET" "umask 077 && mkdir -p /slovo/landing/tokens && cat > /slovo/landing/tokens/github"
-          fi
+          # The mobile repositories are public: the refresh reads releases
+          # anonymously, no API tokens are provisioned.
           # Refresh is best-effort: deployment must not fail if the APK source
           # is down. Log output for diagnosis. The unit is Type=oneshot, so
           # `systemctl start` blocks until the refresh finishes; afterwards

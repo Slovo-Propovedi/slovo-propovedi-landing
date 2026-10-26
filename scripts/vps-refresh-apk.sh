@@ -32,7 +32,7 @@ load_env_file() {
   [ -r "$1" ] || return 0
   while IFS='=' read -r key value || [ -n "$key" ]; do
     case "$key" in
-      REPOSITORY_URL|MIRROR_CODEBERG_URL|MIRROR_GITHUB_LATEST_RELEASE_URL|MIRROR_GITHUB_SCREENSHOTS_RAW_URL|APK_SIGNER_SHA256) ;;
+      REPOSITORY_URL|REPOSITORY_ORG|MIRROR_CODEBERG_URL|MIRROR_CODEBERG_ORG|MIRROR_GITHUB_ORG|MOBILE_REPOSITORY_NAME|APK_SIGNER_SHA256) ;;
       *) continue ;;
     esac
     [ -n "${!key:-}" ] && continue
@@ -51,20 +51,30 @@ require_env() {
 }
 MISSING_ENV=0
 require_env REPOSITORY_URL
+require_env REPOSITORY_ORG
 require_env MIRROR_CODEBERG_URL
-require_env MIRROR_GITHUB_LATEST_RELEASE_URL
+require_env MIRROR_CODEBERG_ORG
+require_env MIRROR_GITHUB_ORG
+require_env MOBILE_REPOSITORY_NAME
 require_env APK_SIGNER_SHA256
 if [ "$MISSING_ENV" -ne 0 ]; then
   echo "ERROR: missing required environment variables — aborting" >&2
   exit 1
 fi
 
-# Every source URL must be plain https with a URL-safe charset: they are built
-# into API URLs and handed to curl, so anything else is a misconfiguration.
-HTTPS_URL_RE='^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$'
-for var in REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL; do
-  if ! printf '%s' "${!var}" | grep -Eq "$HTTPS_URL_RE"; then
-    echo "ERROR: $var must be an https:// URL (got '${!var}')" >&2
+# Repository coordinates (Forgejo org variables, same contract as the image
+# build): the hosts are bare https origins, the org/repo names plain slugs.
+# They are built into API URLs and handed to curl, so anything else is a
+# misconfiguration.
+for var in REPOSITORY_URL MIRROR_CODEBERG_URL; do
+  if ! printf '%s' "${!var}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
+    echo "ERROR: $var must be a bare https origin, no path (got '${!var}')" >&2
+    exit 1
+  fi
+done
+for var in REPOSITORY_ORG MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME; do
+  if ! printf '%s' "${!var}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+    echo "ERROR: $var must be a plain org/repo slug (got '${!var}')" >&2
     exit 1
   fi
 done
@@ -87,20 +97,16 @@ fi
 # --- Configuration (override via env) ---
 APK_DIR="${APK_DIR:-/slovo/landing/apk}"
 KEEP_VERSIONS="${KEEP_VERSIONS:-3}"
-TOKEN_DIR="${TOKEN_DIR:-/slovo/landing/tokens}"
 TIMEOUT="${TIMEOUT:-120}"
 # Zip-bomb guard: the release archive holds one ~50MB APK.
 MAX_UNZIPPED_BYTES="${MAX_UNZIPPED_BYTES:-314572800}"
 MAX_ZIP_ENTRIES="${MAX_ZIP_ENTRIES:-20}"
 
-# Strip a single trailing slash so https://host//api/... can never be built.
-REPOSITORY_URL="${REPOSITORY_URL%/}"
-MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL%/}"
-MIRROR_GITHUB_LATEST_RELEASE_URL="${MIRROR_GITHUB_LATEST_RELEASE_URL%/}"
-RELEASE_API_PATH="/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/releases/latest"
-REPOSITORY_API="$REPOSITORY_URL$RELEASE_API_PATH"
-# Codeberg runs Forgejo: same API shape as the primary repository.
-CODEBERG_API="$MIRROR_CODEBERG_URL$RELEASE_API_PATH"
+# Release API endpoints. Codeberg runs Forgejo: same API shape as the primary
+# repository; GitHub's API host is fixed.
+REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_ORG/$MOBILE_REPOSITORY_NAME/releases/latest"
+CODEBERG_API="$MIRROR_CODEBERG_URL/api/v1/repos/$MIRROR_CODEBERG_ORG/$MOBILE_REPOSITORY_NAME/releases/latest"
+GITHUB_API="https://api.github.com/repos/$MIRROR_GITHUB_ORG/$MOBILE_REPOSITORY_NAME/releases/latest"
 
 # https only, including every redirect, and an explicit User-Agent: GitHub's
 # API requires one, and Codeberg rejects some browser-like agents that a
@@ -127,43 +133,6 @@ for cmd in curl jq unzip sha256sum sort apksigner; do
     exit 1
   fi
 done
-
-# --- Token detection (never echoed) ---
-# Order: env override, then the systemd credential (LoadCredential= hands the
-# root-only token file to this unprivileged unit), then TOKEN_DIR for manual
-# root runs. An empty file means "no token".
-read_token() {
-  local env_value="$1" name="$2" file
-  if [ -n "$env_value" ]; then
-    printf '%s' "$env_value" | tr -d '\r\n'
-    return
-  fi
-  for file in "${CREDENTIALS_DIRECTORY:-/nonexistent}/$name" "$TOKEN_DIR/$name"; do
-    if [ -r "$file" ] && [ -s "$file" ]; then
-      tr -d '\r\n' < "$file"
-      return
-    fi
-  done
-}
-REPOSITORY_TOKEN="$(read_token "${REPOSITORY_API_TOKEN:-}" forgejo)"
-GITHUB_TOKEN="$(read_token "${GITHUB_MIRROR_TOKEN:-}" github)"
-
-# --- Auth headers written to files (never in argv) ---
-# curl -H @file (>=7.55) reads the header from a file, keeping the token out of
-# /proc/*/cmdline. Files live in the private 0700 WORKDIR, cleaned by the EXIT trap.
-REPOSITORY_AUTH_HDR=""
-if [ -n "$REPOSITORY_TOKEN" ]; then
-  REPOSITORY_AUTH_HDR="$WORKDIR/forgejo-auth.hdr"
-  printf 'Authorization: token %s\n' "$REPOSITORY_TOKEN" > "$REPOSITORY_AUTH_HDR"
-  chmod 600 "$REPOSITORY_AUTH_HDR"
-fi
-
-GITHUB_AUTH_HDR=""
-if [ -n "$GITHUB_TOKEN" ]; then
-  GITHUB_AUTH_HDR="$WORKDIR/github-auth.hdr"
-  printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$GITHUB_AUTH_HDR"
-  chmod 600 "$GITHUB_AUTH_HDR"
-fi
 
 # =============================================================================
 # verify_apk_signature <apk>
@@ -225,13 +194,8 @@ process_source() {
   fi
 
   if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
-    if [ "$name" = "forgejo-anon" ]; then
-      echo "  [$name] auth required (HTTP $http_code) — provide a token in $TOKEN_DIR/forgejo (mode 600) or REPOSITORY_API_TOKEN env"
-    elif [ "$name" = "github-anon" ]; then
-      echo "  [$name] rate-limited or forbidden (HTTP $http_code) — provide a token in $TOKEN_DIR/github or GITHUB_MIRROR_TOKEN env"
-    else
-      echo "  [$name] HTTP $http_code"
-    fi
+    # Public repositories need no auth: 401/403 means rate-limited or blocked.
+    echo "  [$name] HTTP $http_code (rate-limited or forbidden)"
     rm -f "$json_file"
     return 1
   fi
@@ -393,19 +357,11 @@ if try_source "forgejo-anon" "$REPOSITORY_API" "" ""; then
   :
 elif [ "$NO_APK_RELEASE" -eq 1 ]; then
   :
-elif [ -n "$REPOSITORY_TOKEN" ] && try_source "forgejo-token" "$REPOSITORY_API" "@$REPOSITORY_AUTH_HDR" ""; then
-  :
-elif [ "$NO_APK_RELEASE" -eq 1 ]; then
-  :
 elif try_source "codeberg-anon" "$CODEBERG_API" "" ""; then
   :
 elif [ "$NO_APK_RELEASE" -eq 1 ]; then
   :
-elif try_source "github-anon" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "" "Accept: application/vnd.github+json"; then
-  :
-elif [ "$NO_APK_RELEASE" -eq 1 ]; then
-  :
-elif [ -n "$GITHUB_TOKEN" ] && try_source "github-token" "$MIRROR_GITHUB_LATEST_RELEASE_URL" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json"; then
+elif try_source "github-anon" "$GITHUB_API" "" "Accept: application/vnd.github+json"; then
   :
 elif [ "$NO_APK_RELEASE" -eq 1 ]; then
   :

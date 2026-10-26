@@ -29,7 +29,7 @@ load_env_file() {
   [ -r "$1" ] || return 0
   while IFS='=' read -r key value || [ -n "$key" ]; do
     case "$key" in
-      REPOSITORY_URL|MIRROR_CODEBERG_URL|MIRROR_GITHUB_LATEST_RELEASE_URL|MIRROR_GITHUB_SCREENSHOTS_RAW_URL) ;;
+      REPOSITORY_URL|REPOSITORY_ORG|MIRROR_CODEBERG_URL|MIRROR_CODEBERG_ORG|MIRROR_GITHUB_ORG|MOBILE_REPOSITORY_NAME|APK_SIGNER_SHA256) ;;
       *) continue ;;
     esac
     [ -n "${!key:-}" ] && continue
@@ -48,49 +48,45 @@ require_env() {
 }
 MISSING_ENV=0
 require_env REPOSITORY_URL
+require_env REPOSITORY_ORG
 require_env MIRROR_CODEBERG_URL
-require_env MIRROR_GITHUB_LATEST_RELEASE_URL
-require_env MIRROR_GITHUB_SCREENSHOTS_RAW_URL
+require_env MIRROR_CODEBERG_ORG
+require_env MIRROR_GITHUB_ORG
+require_env MOBILE_REPOSITORY_NAME
 if [ "$MISSING_ENV" -ne 0 ]; then
   echo "ERROR: missing required environment variables — aborting" >&2
   exit 1
 fi
 
-# Every source URL must be plain https with a URL-safe charset: they are built
-# into API URLs and handed to curl, so anything else is a misconfiguration.
-HTTPS_URL_RE='^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$'
-for var in REPOSITORY_URL MIRROR_CODEBERG_URL MIRROR_GITHUB_LATEST_RELEASE_URL MIRROR_GITHUB_SCREENSHOTS_RAW_URL; do
-  if ! printf '%s' "${!var}" | grep -Eq "$HTTPS_URL_RE"; then
-    echo "ERROR: $var must be an https:// URL (got '${!var}')" >&2
+# Repository coordinates (Forgejo org variables, same contract as the image
+# build): the hosts are bare https origins, the org/repo names plain slugs.
+# They are built into API URLs and handed to curl, so anything else is a
+# misconfiguration.
+for var in REPOSITORY_URL MIRROR_CODEBERG_URL; do
+  if ! printf '%s' "${!var}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
+    echo "ERROR: $var must be a bare https origin, no path (got '${!var}')" >&2
+    exit 1
+  fi
+done
+for var in REPOSITORY_ORG MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME; do
+  if ! printf '%s' "${!var}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+    echo "ERROR: $var must be a plain org/repo slug (got '${!var}')" >&2
     exit 1
   fi
 done
 
 # --- Configuration (override via env) ---
 SCREENSHOTS_DIR="${SCREENSHOTS_DIR:-/slovo/landing/screenshots}"
-TOKEN_DIR="${TOKEN_DIR:-/slovo/landing/tokens}"
 TIMEOUT="${TIMEOUT:-120}"
 
-# Strip a single trailing slash so https://host//api/... can never be built.
-REPOSITORY_URL="${REPOSITORY_URL%/}"
-MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL%/}"
-MIRROR_GITHUB_LATEST_RELEASE_URL="${MIRROR_GITHUB_LATEST_RELEASE_URL%/}"
-MIRROR_GITHUB_SCREENSHOTS_RAW_URL="${MIRROR_GITHUB_SCREENSHOTS_RAW_URL%/}"
-REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/git/trees/main?recursive=true"
-REPOSITORY_RAW="$REPOSITORY_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/raw/assets/screenshots"
-# Codeberg runs Forgejo: same API shape as the primary repository.
-CODEBERG_API="$MIRROR_CODEBERG_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/git/trees/main?recursive=true"
-CODEBERG_RAW="$MIRROR_CODEBERG_URL/api/v1/repos/Slovo_Propovedi/slovo-propovedi-mobile/raw/assets/screenshots"
-# GitHub tree API of the same repo, derived from the releases/latest URL
-# (…/repos/<owner>/<repo>/releases/latest → …/repos/<owner>/<repo>/git/trees/main).
-case "$MIRROR_GITHUB_LATEST_RELEASE_URL" in
-  */releases/latest) ;;
-  *)
-    echo "ERROR: MIRROR_GITHUB_LATEST_RELEASE_URL must end with /releases/latest (got '$MIRROR_GITHUB_LATEST_RELEASE_URL')" >&2
-    exit 1
-    ;;
-esac
-GITHUB_TREE_API="${MIRROR_GITHUB_LATEST_RELEASE_URL%/releases/latest}/git/trees/main?recursive=1"
+# Tree + raw endpoints of the mobile repo on each host. Codeberg runs Forgejo:
+# same API shape as the primary repository; GitHub's hosts are fixed.
+REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_ORG/$MOBILE_REPOSITORY_NAME/git/trees/main?recursive=true"
+REPOSITORY_RAW="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_ORG/$MOBILE_REPOSITORY_NAME/raw/assets/screenshots"
+CODEBERG_API="$MIRROR_CODEBERG_URL/api/v1/repos/$MIRROR_CODEBERG_ORG/$MOBILE_REPOSITORY_NAME/git/trees/main?recursive=true"
+CODEBERG_RAW="$MIRROR_CODEBERG_URL/api/v1/repos/$MIRROR_CODEBERG_ORG/$MOBILE_REPOSITORY_NAME/raw/assets/screenshots"
+GITHUB_TREE_API="https://api.github.com/repos/$MIRROR_GITHUB_ORG/$MOBILE_REPOSITORY_NAME/git/trees/main?recursive=1"
+GITHUB_RAW="https://raw.githubusercontent.com/$MIRROR_GITHUB_ORG/$MOBILE_REPOSITORY_NAME/main/assets/screenshots"
 
 # https only, including every redirect, and an explicit User-Agent: GitHub's
 # API requires one, and Codeberg rejects some browser-like agents that a
@@ -117,43 +113,6 @@ for cmd in curl jq sha1sum sha256sum sort stat cmp; do
     exit 1
   fi
 done
-
-# --- Token detection (never echoed) ---
-# Order: env override, then the systemd credential (LoadCredential= hands the
-# root-only token file to this unprivileged unit), then TOKEN_DIR for manual
-# root runs. An empty file means "no token".
-read_token() {
-  local env_value="$1" name="$2" file
-  if [ -n "$env_value" ]; then
-    printf '%s' "$env_value" | tr -d '\r\n'
-    return
-  fi
-  for file in "${CREDENTIALS_DIRECTORY:-/nonexistent}/$name" "$TOKEN_DIR/$name"; do
-    if [ -r "$file" ] && [ -s "$file" ]; then
-      tr -d '\r\n' < "$file"
-      return
-    fi
-  done
-}
-REPOSITORY_TOKEN="$(read_token "${REPOSITORY_API_TOKEN:-}" forgejo)"
-GITHUB_TOKEN="$(read_token "${GITHUB_MIRROR_TOKEN:-}" github)"
-
-# --- Auth headers written to files (never in argv) ---
-# curl -H @file (>=7.55) reads the header from a file, keeping the token out of
-# /proc/*/cmdline. Files live in the private 0700 WORKDIR, cleaned by the EXIT trap.
-REPOSITORY_AUTH_HDR=""
-if [ -n "$REPOSITORY_TOKEN" ]; then
-  REPOSITORY_AUTH_HDR="$WORKDIR/forgejo-auth.hdr"
-  printf 'Authorization: token %s\n' "$REPOSITORY_TOKEN" > "$REPOSITORY_AUTH_HDR"
-  chmod 600 "$REPOSITORY_AUTH_HDR"
-fi
-
-GITHUB_AUTH_HDR=""
-if [ -n "$GITHUB_TOKEN" ]; then
-  GITHUB_AUTH_HDR="$WORKDIR/github-auth.hdr"
-  printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$GITHUB_AUTH_HDR"
-  chmod 600 "$GITHUB_AUTH_HDR"
-fi
 
 # --- Global state set by a successful source ---
 TREE_FILE=""      # path to the filtered+validated "path:sha" list (sorted)
@@ -192,13 +151,8 @@ fetch_tree() {
   fi
 
   if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
-    if [ "$name" = "forgejo-anon" ]; then
-      echo "  [$name] auth required (HTTP $http_code) — provide a token in $TOKEN_DIR/forgejo (mode 600) or REPOSITORY_API_TOKEN env"
-    elif [ "$name" = "github-anon" ]; then
-      echo "  [$name] rate-limited or forbidden (HTTP $http_code) — provide a token in $TOKEN_DIR/github or GITHUB_MIRROR_TOKEN env"
-    else
-      echo "  [$name] HTTP $http_code"
-    fi
+    # Public repositories need no auth: 401/403 means rate-limited or blocked.
+    echo "  [$name] HTTP $http_code (rate-limited or forbidden)"
     rm -f "$json_file"
     return 1
   fi
@@ -253,13 +207,9 @@ fetch_tree() {
 echo ">> Fetching mobile repo screenshot tree..."
 if fetch_tree "forgejo-anon" "$REPOSITORY_API" "" "" "$REPOSITORY_RAW" "?ref=main"; then
   :
-elif [ -n "$REPOSITORY_TOKEN" ] && fetch_tree "forgejo-token" "$REPOSITORY_API" "@$REPOSITORY_AUTH_HDR" "" "$REPOSITORY_RAW" "?ref=main"; then
-  :
 elif fetch_tree "codeberg-anon" "$CODEBERG_API" "" "" "$CODEBERG_RAW" "?ref=main"; then
   :
-elif fetch_tree "github-anon" "$GITHUB_TREE_API" "" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
-  :
-elif [ -n "$GITHUB_TOKEN" ] && fetch_tree "github-token" "$GITHUB_TREE_API" "@$GITHUB_AUTH_HDR" "Accept: application/vnd.github+json" "$MIRROR_GITHUB_SCREENSHOTS_RAW_URL" ""; then
+elif fetch_tree "github-anon" "$GITHUB_TREE_API" "" "Accept: application/vnd.github+json" "$GITHUB_RAW" ""; then
   :
 else
   echo "ERROR: no screenshot source succeeded; leaving previous state untouched" >&2
@@ -380,7 +330,7 @@ updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 jq -n \
   --arg fingerprint "$FINGERPRINT" \
   --arg updatedAt "$updated_at" \
-  --arg sourceUrl "$REPOSITORY_URL/Slovo_Propovedi/slovo-propovedi-mobile" \
+  --arg sourceUrl "$REPOSITORY_URL/$REPOSITORY_ORG/$MOBILE_REPOSITORY_NAME" \
   --arg sourcePath "assets/screenshots" \
   --argjson images "$(jq -Rs '
     split("\n")

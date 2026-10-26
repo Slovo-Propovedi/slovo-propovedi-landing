@@ -48,7 +48,7 @@ scripts/
                       #   /screenshots bind mount
 .forgejo/workflows/
   ci.yml              # Validate on push/PR to main
-  release.yml         # Tag deploy: version check, SSH deploy, token provisioning,
+  release.yml         # Tag deploy: version check, SSH deploy,
                       #   APK refresh trigger, Forgejo release creation
   refresh-apk.yml     # Manual (workflow_dispatch) APK refresh trigger
 docs/seo.md           # SEO / indexing runbook (webmaster verification, sitemap,
@@ -165,18 +165,28 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
 - `scripts/vps-refresh-screenshots.sh` runs on the VPS as the `slovo` user in a
   sandboxed unit, twice daily via `slovo-landing-refresh-shots.timer` (same
   cadence). It polls the mobile repo git tree (Forgejo → Codeberg → GitHub; the
-  GitHub tree URL is derived from `MIRROR_GITHUB_LATEST_RELEASE_URL`), verifies each PNG, and atomically publishes the gallery +
+  all URLs are built from the repository org variables), verifies each PNG, and atomically publishes the gallery +
   `manifest.json`. If the served fingerprint already matches the remote tree it
   exits 0 early without re-downloading or rewriting anything (stale files are
   still pruned, so the gallery self-heals).
 - The screenshots bind mount (`/slovo/landing/screenshots` →
   `/usr/share/nginx/html/screenshots`, read-only) is added to the container
   unit by `vps-deploy.sh`, next to the `/apk` mount.
-- Tokens for the release APIs live in `/slovo/landing/tokens` (root-owned
-  0700 — the `slovo` user and container can never read them directly). The
-  release workflow provisions them via stdin; the units receive them through
-  systemd `LoadCredential=` (`$CREDENTIALS_DIRECTORY`). `vps-deploy.sh` keeps an
-  empty file per token, because `LoadCredential=` fails on a missing file.
+- The mobile repositories are public: both refresh scripts read releases and
+  the git tree anonymously, so no API tokens are provisioned (a leftover
+  `/slovo/landing/tokens` from older deploys is unused).
+- Repository coordinates are Forgejo **org variables** shared with the mobile
+  repo: `REPOSITORY_URL`/`REPOSITORY_ORG` (primary Forgejo),
+  `MIRROR_CODEBERG_URL`/`MIRROR_CODEBERG_ORG`, `MIRROR_GITHUB_ORG` (GitHub hosts
+  are fixed) and `MOBILE_REPOSITORY_NAME`. Hosts are bare https origins, names
+  plain slugs — validated identically by release.yml, the Dockerfile, the
+  refresh scripts and the dev server. They reach the scripts via
+  `/etc/default/slovo-landing` and the static site via build-time placeholders
+  (`__REPOSITORY_URL__` etc. in index.html, main.js and the nginx CSP);
+  `validate.mjs` rejects literal hosts/orgs in those files.
+- Shared infra names (`TRAEFIK_NETWORK`, `TRAEFIK_SERVICE`, `BUILDX_BUILDER`)
+  are org variables mirroring the playbook; `vps-deploy.sh` requires them (no
+  hardcoded defaults).
 - Both refresh units run with `User=slovo`, `EnvironmentFile=` (config is data,
   never sourced as shell — manual runs parse the same file without `eval`),
   `ProtectSystem=strict` + `ReadWritePaths=` of their own output dir only,
@@ -277,8 +287,10 @@ Conventional commits (enforced by `.husky/commit-msg`):
    location and must stay byte-identical (validate.mjs enforces this).
 6. **The refresh script must never shadow `TMPDIR`** — it uses `WORKDIR` for its
    temp workspace so tools honouring the env var are not confused.
-7. **`__WEB_HOSTNAME__`/`__LANDING_HOSTNAME__` placeholders are replaced at
-   image build** — never commit a real hostname there; keep `/web` links
+7. **`__WEB_HOSTNAME__`/`__LANDING_HOSTNAME__` and the repository placeholders
+   (`__REPOSITORY_URL__`, `__REPOSITORY_ORG__`, `__MIRROR_CODEBERG_URL__`,
+   `__MIRROR_CODEBERG_ORG__`, `__MIRROR_GITHUB_ORG__`, `__MOBILE_REPOSITORY_NAME__`)
+   are replaced at image build** — never commit a real hostname or org there; keep `/web` links
    relative. Both are hostname-only by contract (no protocol, path, trailing
    slash or port), and the bare-hostname charset makes the metacharacters that
    broke the old `WEB_APP_URL` scheme (`& \ | ; " ' $`) unrepresentable.
