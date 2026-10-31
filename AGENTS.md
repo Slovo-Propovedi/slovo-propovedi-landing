@@ -15,6 +15,30 @@ host at `/slovo/landing/apk` and are bind-mounted read-only into the container
 at `/usr/share/nginx/html/apk` by the systemd unit. `latest.json` (the download
 metadata contract) is produced server-side and served from that same mount.
 
+## Mandatory Workflows: SDD, Plan-Implement, TDD
+
+Every non-trivial task runs through a workflow BEFORE implementation. Workflow skills live in `.opencode/skills/<name>/SKILL.md` with a byte-identical mirror in `.claude/skills/` (keep both copies in sync). Spec-driven commands live in `.opencode/commands/speckit.*.md` (mirrored in `.claude/commands/`).
+
+| Situation | Workflow | How |
+|-----------|----------|-----|
+| New feature, API contract change, cross-cutting change, vague requirements | Spec-Driven Development | `/speckit.specify` → `/speckit.clarify` → `/speckit.plan` → `/speckit.tasks` → `/speckit.implement` (`/speckit.constitution` once per repo; `/speckit.analyze` / `/speckit.checklist` when useful) |
+| Clear requirements, multi-step change (no spec needed) | Plan → implement | `plan-implement` skill |
+| Any bug, red test, unexpected behavior | Debug first | `systematic-debugging` skill |
+| Any code/behavior change (inside any workflow) | Test-Driven Development | `tdd` skill (verification-first Mode B when no test runner) |
+| Always, on every task | Minimal diff | `ponytail` skill |
+| Before claiming ANY task done | Done-gate | `verification-before-completion` skill |
+
+Rules:
+
+1. Load the workflow skill via the `skill` tool BEFORE writing code and announce it ("Using <skill> to <purpose>"). Spec-level features start with the `/speckit.*` commands instead.
+2. No production code without a failing check first (`tdd` Iron Law).
+3. Specs, plans and task lists are repo artifacts: spec-kit features live under `specs/<NNN-slug>/`; commit them together with the implementation.
+4. Opt-out only when the user explicitly says so ("skip workflow", "just do it") — and name the skip in the completion report.
+5. Verification commands for this repo: `npm run validate`.
+6. This repo has no debt ledger — a shortcut with a known limit gets the `shortcut: ...` comment only.
+
+The `specify` CLI is NOT required at runtime — it is a scaffolder used only to (re)generate `.specify/` templates and the speckit commands. Contributors need only OpenCode/Claude Code + bash.
+
 ## Repository layout
 
 ```
