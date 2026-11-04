@@ -12,24 +12,27 @@
    to the first one that answers. A fetch that RESOLVES counts as responding:
    any HTTP status is fine (404 just means "no releases yet", the host is up);
    only network errors and timeouts are failures. */
-// Repository coordinates are baked at image build from Forgejo org variables
-// (see Dockerfile); the dev server substitutes them from .env. Codeberg runs
-// Forgejo, so both use the same API shape; GitHub's hosts are fixed.
+// Repository coordinates reach these placeholders as Dockerfile build-args:
+// the primary Forgejo URL/owner come from the runner (GITHUB_SERVER_URL,
+// github.repository_owner — no org variable needed), MIRROR_* and the repo
+// name remain Forgejo org variables (see release.yml); the dev server
+// substitutes the same placeholders from .env. Codeberg runs Forgejo, so both
+// use the same API shape; GitHub's hosts are fixed.
 const MOBILE_REPO = {
   forgejoUrl: '__REPOSITORY_URL__',
-  forgejoOrg: '__REPOSITORY_ORG__',
+  forgejoOwner: '__REPOSITORY_OWNER__',
   codebergUrl: '__MIRROR_CODEBERG_URL__',
   codebergOrg: '__MIRROR_CODEBERG_ORG__',
   githubOrg: '__MIRROR_GITHUB_ORG__',
   name: '__MOBILE_REPOSITORY_NAME__',
 }
-const forgejoRepoPath = (url, org) => `${url}/${org}/${MOBILE_REPO.name}`
-const forgejoReleaseApi = (url, org) => `${url}/api/v1/repos/${org}/${MOBILE_REPO.name}/releases/latest`
+const forgejoRepoPath = (url, owner) => `${url}/${owner}/${MOBILE_REPO.name}`
+const forgejoReleaseApi = (url, owner) => `${url}/api/v1/repos/${owner}/${MOBILE_REPO.name}/releases/latest`
 
-const RELEASES_FALLBACK_URL = `${forgejoRepoPath(MOBILE_REPO.forgejoUrl, MOBILE_REPO.forgejoOrg)}/releases`
+const RELEASES_FALLBACK_URL = `${forgejoRepoPath(MOBILE_REPO.forgejoUrl, MOBILE_REPO.forgejoOwner)}/releases`
 const RELEASE_SOURCES = [
   {
-    api: forgejoReleaseApi(MOBILE_REPO.forgejoUrl, MOBILE_REPO.forgejoOrg),
+    api: forgejoReleaseApi(MOBILE_REPO.forgejoUrl, MOBILE_REPO.forgejoOwner),
     page: RELEASES_FALLBACK_URL,
   },
   {

@@ -24,10 +24,11 @@ const DEFAULTS = {
 }
 
 // Mobile repository coordinates baked into index.html / main.js (same names as
-// the Dockerfile build args and the Forgejo org variables).
+// the Dockerfile build args; mirrors and repo name via Forgejo org variables,
+// the primary Forgejo coords runner-derived in CI).
 const REPO_KEYS = [
   'REPOSITORY_URL',
-  'REPOSITORY_ORG',
+  'REPOSITORY_OWNER',
   'MIRROR_CODEBERG_URL',
   'MIRROR_CODEBERG_ORG',
   'MIRROR_GITHUB_ORG',

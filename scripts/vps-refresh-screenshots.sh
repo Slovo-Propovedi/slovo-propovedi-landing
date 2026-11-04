@@ -29,7 +29,7 @@ load_env_file() {
   [ -r "$1" ] || return 0
   while IFS='=' read -r key value || [ -n "$key" ]; do
     case "$key" in
-      REPOSITORY_URL|REPOSITORY_ORG|MIRROR_CODEBERG_URL|MIRROR_CODEBERG_ORG|MIRROR_GITHUB_ORG|MOBILE_REPOSITORY_NAME|APK_SIGNER_SHA256) ;;
+      REPOSITORY_URL|REPOSITORY_OWNER|MIRROR_CODEBERG_URL|MIRROR_CODEBERG_ORG|MIRROR_GITHUB_ORG|MOBILE_REPOSITORY_NAME|APK_SIGNER_SHA256) ;;
       *) continue ;;
     esac
     [ -n "${!key:-}" ] && continue
@@ -48,7 +48,7 @@ require_env() {
 }
 MISSING_ENV=0
 require_env REPOSITORY_URL
-require_env REPOSITORY_ORG
+require_env REPOSITORY_OWNER
 require_env MIRROR_CODEBERG_URL
 require_env MIRROR_CODEBERG_ORG
 require_env MIRROR_GITHUB_ORG
@@ -58,17 +58,18 @@ if [ "$MISSING_ENV" -ne 0 ]; then
   exit 1
 fi
 
-# Repository coordinates (Forgejo org variables, same contract as the image
-# build): the hosts are bare https origins, the org/repo names plain slugs.
-# They are built into API URLs and handed to curl, so anything else is a
-# misconfiguration.
+# Repository coordinates (read from the env file / environment, written by the
+# release deploy from runner-derived and org-variable values — same contract
+# as the image build): the hosts are bare https origins, the org/repo names
+# plain slugs. They are built into API URLs and handed to curl, so anything
+# else is a misconfiguration.
 for var in REPOSITORY_URL MIRROR_CODEBERG_URL; do
   if ! printf '%s' "${!var}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
     echo "ERROR: $var must be a bare https origin, no path (got '${!var}')" >&2
     exit 1
   fi
 done
-for var in REPOSITORY_ORG MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME; do
+for var in REPOSITORY_OWNER MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME; do
   if ! printf '%s' "${!var}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
     echo "ERROR: $var must be a plain org/repo slug (got '${!var}')" >&2
     exit 1
@@ -81,8 +82,8 @@ TIMEOUT="${TIMEOUT:-120}"
 
 # Tree + raw endpoints of the mobile repo on each host. Codeberg runs Forgejo:
 # same API shape as the primary repository; GitHub's hosts are fixed.
-REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_ORG/$MOBILE_REPOSITORY_NAME/git/trees/main?recursive=true"
-REPOSITORY_RAW="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_ORG/$MOBILE_REPOSITORY_NAME/raw/assets/screenshots"
+REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_OWNER/$MOBILE_REPOSITORY_NAME/git/trees/main?recursive=true"
+REPOSITORY_RAW="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_OWNER/$MOBILE_REPOSITORY_NAME/raw/assets/screenshots"
 CODEBERG_API="$MIRROR_CODEBERG_URL/api/v1/repos/$MIRROR_CODEBERG_ORG/$MOBILE_REPOSITORY_NAME/git/trees/main?recursive=true"
 CODEBERG_RAW="$MIRROR_CODEBERG_URL/api/v1/repos/$MIRROR_CODEBERG_ORG/$MOBILE_REPOSITORY_NAME/raw/assets/screenshots"
 GITHUB_TREE_API="https://api.github.com/repos/$MIRROR_GITHUB_ORG/$MOBILE_REPOSITORY_NAME/git/trees/main?recursive=1"
@@ -330,7 +331,7 @@ updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 jq -n \
   --arg fingerprint "$FINGERPRINT" \
   --arg updatedAt "$updated_at" \
-  --arg sourceUrl "$REPOSITORY_URL/$REPOSITORY_ORG/$MOBILE_REPOSITORY_NAME" \
+  --arg sourceUrl "$REPOSITORY_URL/$REPOSITORY_OWNER/$MOBILE_REPOSITORY_NAME" \
   --arg sourcePath "assets/screenshots" \
   --argjson images "$(jq -Rs '
     split("\n")

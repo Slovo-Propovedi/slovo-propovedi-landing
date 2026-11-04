@@ -165,7 +165,8 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
 ## VPS deployment & APK refresh
 
 - `scripts/vps-deploy.sh` runs on the VPS as root (triggered by the release
-  workflow over SSH). It builds the image with buildx, writes Traefik labels
+  workflow over SSH). It pulls the published image (the release workflow
+  builds/pushes it via the SSH builder), writes Traefik labels
   (apex + www hostnames, www→apex redirect), starts the container, installs the
   refresh systemd units, and triggers one initial refresh.
 - **Boundary:** the script owns only the `slovo-landing` container, its
@@ -193,8 +194,9 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   nothing to refresh, and it must not fall through to an older mirror release.
 - `scripts/vps-refresh-screenshots.sh` runs on the VPS as the `slovo` user in a
   sandboxed unit, twice daily via `slovo-landing-refresh-shots.timer` (same
-  cadence). It polls the mobile repo git tree (Forgejo → Codeberg → GitHub; the
-  all URLs are built from the repository org variables), verifies each PNG, and atomically publishes the gallery +
+  cadence). It polls the mobile repo git tree (Forgejo → Codeberg → GitHub; all
+  URLs are baked from runner-provided repository coordinates and the mirror org
+  variables), verifies each PNG, and atomically publishes the gallery +
   `manifest.json`. If the served fingerprint already matches the remote tree it
   exits 0 early without re-downloading or rewriting anything (stale files are
   still pruned, so the gallery self-heals).
@@ -204,13 +206,16 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
 - The mobile repositories are public: both refresh scripts read releases and
   the git tree anonymously, so no API tokens are provisioned (a leftover
   `/slovo/landing/tokens` from older deploys is unused).
-- Repository coordinates are Forgejo **org variables** shared with the mobile
-  repo: `REPOSITORY_URL`/`REPOSITORY_ORG` (primary Forgejo),
-  `MIRROR_CODEBERG_URL`/`MIRROR_CODEBERG_ORG`, `MIRROR_GITHUB_ORG` (GitHub hosts
-  are fixed) and `MOBILE_REPOSITORY_NAME`. Hosts are bare https origins, names
+- Repository coordinates: the primary Forgejo URL/org are provided by the
+  runner (`GITHUB_SERVER_URL` / `github.repository_owner` — no org variable
+  needed); `MIRROR_CODEBERG_URL`/`MIRROR_CODEBERG_ORG`, `MIRROR_GITHUB_ORG`
+  (GitHub hosts are fixed) and `MOBILE_REPOSITORY_NAME` remain Forgejo org
+  variables shared with the mobile repo. Hosts are bare https origins, names
   plain slugs — validated identically by release.yml, the Dockerfile, the
   refresh scripts and the dev server. They reach the scripts via
-  `/etc/default/slovo-landing` and the static site via build-time placeholders
+  `/etc/default/slovo-landing` (written from runner-derived values on every
+  deploy; the `REPOSITORY_URL`/`REPOSITORY_OWNER` *names* are kept for the env
+  file and vps-deploy.sh) and the static site via build-time placeholders
   (`__REPOSITORY_URL__` etc. in index.html, main.js and the nginx CSP);
   `validate.mjs` rejects literal hosts/orgs in those files.
 - Shared infra names (`TRAEFIK_NETWORK`, `TRAEFIK_SERVICE`, `BUILDX_BUILDER`)
@@ -235,11 +240,12 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   opening in a new tab (`target="_blank" rel="noopener"`). nginx answers it
   with a `302` redirect to the web app.
 - The target hostname comes from `WEB_HOSTNAME` (Forgejo repo variable,
-  required). Flow: release.yml env → SSH inline env → `vps-deploy.sh`
-  (validates a bare hostname, fails fast if unset) →
-  `--build-arg WEB_HOSTNAME=...` → Dockerfile `sed` replaces the
-  `__WEB_HOSTNAME__` placeholder in nginx.conf at image build, with the
-  `https://` prefix added at bake time → nginx serves
+  required). Baking happens in the release build: release.yml validates the
+  hostname shape and passes it to the Docker build — `--build-arg
+  WEB_HOSTNAME=...` → Dockerfile `sed` replaces the `__WEB_HOSTNAME__`
+  placeholder in nginx.conf at image build, with the `https://` prefix added
+  at bake time. On the VPS `vps-deploy.sh` only re-validates the bare
+  hostname and pulls the already-baked image → nginx serves
   `location = /web { return 302 https://<host>; }`.
 - `WEB_HOSTNAME` (and `LANDING_HOSTNAME`) are **hostname-only** by contract:
   no protocol/scheme, no `://`, no path, no trailing slash, no port. The bare
@@ -256,8 +262,8 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
   via the `__LANDING_HOSTNAME__` placeholder, `https://` prepended at bake time.
 - The values are baked at **build time** because the container rootfs is
   read-only in production — runtime templating is not an option.
-  `vps-deploy.sh` rebuilds the image on every deploy, so a changed variable
-  takes effect on the next release.
+  The release build re-bakes the variables into the image on every tag, so a
+  changed variable takes effect on the next release.
 - `302` (not `301`) is deliberate: browsers must not pin the redirect forever,
   so a changed `WEB_HOSTNAME` applies immediately.
 
@@ -317,7 +323,7 @@ Conventional commits (enforced by `.husky/commit-msg`):
 6. **The refresh script must never shadow `TMPDIR`** — it uses `WORKDIR` for its
    temp workspace so tools honouring the env var are not confused.
 7. **`__WEB_HOSTNAME__`/`__LANDING_HOSTNAME__` and the repository placeholders
-   (`__REPOSITORY_URL__`, `__REPOSITORY_ORG__`, `__MIRROR_CODEBERG_URL__`,
+   (`__REPOSITORY_URL__`, `__REPOSITORY_OWNER__`, `__MIRROR_CODEBERG_URL__`,
    `__MIRROR_CODEBERG_ORG__`, `__MIRROR_GITHUB_ORG__`, `__MOBILE_REPOSITORY_NAME__`)
    are replaced at image build** — never commit a real hostname or org there; keep `/web` links
    relative. Both are hostname-only by contract (no protocol, path, trailing
@@ -325,6 +331,7 @@ Conventional commits (enforced by `.husky/commit-msg`):
    broke the old `WEB_APP_URL` scheme (`& \ | ; " ' $`) unrepresentable.
    `vps-deploy.sh` validates both via `require_valid_hostname` (`LC_ALL=C`),
    and the Dockerfile re-guards + runs `nginx -t` so a bad value fails at BUILD
-   time, never at runtime. Defaults live in the Dockerfile ARGs (both vars); in the deploy
-   script `WEB_HOSTNAME` has a default and `LANDING_HOSTNAME` is required.
+   time, never at runtime. No defaults anywhere: the build ARGs are
+   defaultless and enforced by the Dockerfile guard, and `vps-deploy.sh`
+   requires both hostnames.
    Forgejo vars are `WEB_HOSTNAME` and `LANDING_HOSTNAME`.

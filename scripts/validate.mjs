@@ -64,7 +64,7 @@ if (!html) {
     if (!new RegExp(`id="${id}"`).test(html)) bad(`index.html: missing id="${id}"`)
   }
 
-  if (!html.includes('href="__REPOSITORY_URL__/__REPOSITORY_ORG__/__MOBILE_REPOSITORY_NAME__/releases"')) {
+  if (!html.includes('href="__REPOSITORY_URL__/__REPOSITORY_OWNER__/__MOBILE_REPOSITORY_NAME__/releases"')) {
     bad('index.html: missing forgejo releases fallback link (placeholder form)')
   }
 
@@ -382,12 +382,15 @@ if (html) {
 }
 
 // --- 8b. Repository coordinates come from build args, never literals ---
-// Org variables REPOSITORY_URL/_ORG, MIRROR_CODEBERG_URL/_ORG, MIRROR_GITHUB_ORG
-// and MOBILE_REPOSITORY_NAME are baked by the Dockerfile; a literal host or org
-// in the served files would silently drift from the organisation settings.
+// The coordinates are baked by the Dockerfile at image build: the primary
+// Forgejo URL/org from the runner env (GITHUB_SERVER_URL /
+// github.repository_owner, forwarded as build args by release.yml),
+// MIRROR_CODEBERG_URL/_ORG, MIRROR_GITHUB_ORG and MOBILE_REPOSITORY_NAME from
+// Forgejo org variables. A literal host or org in the served files would
+// silently drift from the organisation settings.
 const REPO_PLACEHOLDERS = [
   'REPOSITORY_URL',
-  'REPOSITORY_ORG',
+  'REPOSITORY_OWNER',
   'MIRROR_CODEBERG_URL',
   'MIRROR_CODEBERG_ORG',
   'MIRROR_GITHUB_ORG',
@@ -414,37 +417,51 @@ if (existsSync('Dockerfile')) {
     }
   }
 }
+// The deploy script only pulls the published image: it validates the baked
+// hostnames (require_valid_hostname), but the build args live in release.yml.
 if (existsSync('scripts/vps-deploy.sh')) {
   const deploy = read('scripts/vps-deploy.sh')
-  for (const name of REPO_PLACEHOLDERS) {
-    if (!deploy.includes(`--build-arg ${name}=`)) {
-      bad(`scripts/vps-deploy.sh: missing --build-arg ${name}=`)
+  for (const name of ['WEB_HOSTNAME', 'LANDING_HOSTNAME', 'DOCS_HOSTNAME']) {
+    if (!deploy.includes(`require_valid_hostname ${name}`)) {
+      bad(`scripts/vps-deploy.sh: missing require_valid_hostname invocation for ${name}`)
     }
-  }
-}
-
-if (existsSync('scripts/vps-deploy.sh')) {
-  const deploy = read('scripts/vps-deploy.sh')
-  if (!deploy.includes('require_valid_hostname WEB_HOSTNAME')) {
-    bad('scripts/vps-deploy.sh: missing require_valid_hostname invocation for WEB_HOSTNAME')
-  }
-  if (!deploy.includes('require_valid_hostname LANDING_HOSTNAME')) {
-    bad('scripts/vps-deploy.sh: missing require_valid_hostname invocation for LANDING_HOSTNAME')
-  }
-  if (!deploy.includes('require_valid_hostname DOCS_HOSTNAME')) {
-    bad('scripts/vps-deploy.sh: missing require_valid_hostname invocation for DOCS_HOSTNAME')
-  }
-  if (!deploy.includes('--build-arg WEB_HOSTNAME=')) {
-    bad('scripts/vps-deploy.sh: missing --build-arg WEB_HOSTNAME=')
-  }
-  if (!deploy.includes('--build-arg LANDING_HOSTNAME=')) {
-    bad('scripts/vps-deploy.sh: missing --build-arg LANDING_HOSTNAME=')
-  }
-  if (!deploy.includes('--build-arg DOCS_HOSTNAME=')) {
-    bad('scripts/vps-deploy.sh: missing --build-arg DOCS_HOSTNAME=')
   }
   if (deploy.includes('WEB_APP_URL')) {
     bad('scripts/vps-deploy.sh: stale WEB_APP_URL reference remains')
+  }
+  if (deploy.includes('--build-arg')) {
+    bad('scripts/vps-deploy.sh: contains --build-arg — the image is built and pushed by release.yml; the deploy only pulls')
+  }
+}
+
+// --- 8c. The release build passes every defaultless Dockerfile ARG ---
+// The image is built and pushed by release.yml (buildx --push over SSH to the
+// shared builder on the VPS). Every ARG the Dockerfile declares without a
+// default — hostnames, repository coordinates and OCI_IMAGE_SOURCE — must be
+// passed as --build-arg by that build step, or the placeholder sed bakes an
+// empty value into the served files.
+const RELEASE_WORKFLOW = '.forgejo/workflows/release.yml'
+if (!existsSync(RELEASE_WORKFLOW)) {
+  bad(`${RELEASE_WORKFLOW} missing`)
+} else if (existsSync('Dockerfile')) {
+  const release = read(RELEASE_WORKFLOW)
+  const argNames = [...read('Dockerfile').matchAll(/^ARG ([A-Za-z_][A-Za-z0-9_]*)$/gm)].map((m) => m[1])
+  const buildArgs = [...release.matchAll(/--build-arg ([A-Za-z_][A-Za-z0-9_]*)=/g)].map((m) => m[1])
+  if (argNames.length === 0) {
+    bad('Dockerfile: no defaultless ARG declarations found')
+  }
+  for (const name of argNames) {
+    if (!buildArgs.includes(name)) {
+      bad(`.forgejo/workflows/release.yml: build step is missing --build-arg ${name}= (Dockerfile ARG has no default)`)
+    }
+  }
+  for (const name of new Set(buildArgs)) {
+    if (!argNames.includes(name)) {
+      bad(`.forgejo/workflows/release.yml: --build-arg ${name}= has no matching ARG in the Dockerfile (unknown build arg)`)
+    }
+  }
+  if (!/--push\b/.test(release)) {
+    bad('.forgejo/workflows/release.yml: build step must use buildx --push (vps-deploy.sh only pulls)')
   }
 }
 
@@ -467,7 +484,7 @@ if (!existsSync('.env.example')) {
   if (!example.includes('WEB_HOSTNAME')) bad('.env.example: missing WEB_HOSTNAME')
   if (!example.includes('LANDING_HOSTNAME')) bad('.env.example: missing LANDING_HOSTNAME')
   if (!example.includes('DOCS_HOSTNAME')) bad('.env.example: missing DOCS_HOSTNAME')
-  for (const name of ['REPOSITORY_ORG', 'MIRROR_CODEBERG_ORG', 'MIRROR_GITHUB_ORG', 'MOBILE_REPOSITORY_NAME']) {
+  for (const name of ['REPOSITORY_OWNER', 'MIRROR_CODEBERG_ORG', 'MIRROR_GITHUB_ORG', 'MOBILE_REPOSITORY_NAME']) {
     if (!example.includes(name)) bad(`.env.example: missing ${name}`)
   }
 }

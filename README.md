@@ -39,8 +39,8 @@ APK-файлы не хранятся в этом репозитории. Скр�
    предыдущее состояние.
 
 Ссылки на страницу релизов адаптивные: `assets/js/main.js` последовательно
-проверяет доступность API Forgejo (`REPOSITORY_URL`), затем Codeberg
-(`MIRROR_CODEBERG_URL`), затем GitHub и подставляет первую ответившую страницу релизов в кнопки «Другие
+проверяет доступность API Forgejo (адрес — baked-плейсхолдеры, см. ниже), затем
+Codeberg, затем GitHub и подставляет первую ответившую страницу релизов в кнопки «Другие
 версии» и «Релизы» (а также в резервный href кнопки скачивания, пока
 `latest.json` не заменил его на APK). Проверка — GET с `cache: 'no-store'` и
 таймаутом 4 с на источник; ответом считается любой HTTP-статус (404 — «релизов
@@ -51,10 +51,11 @@ APK-файлы не хранятся в этом репозитории. Скр�
 
 Адреса и названия репозитория не зашиты в код: ссылки в `index.html`, источники
 в `main.js` и хосты в CSP `nginx.conf` записаны плейсхолдерами
-(`__REPOSITORY_URL__`, `__REPOSITORY_ORG__`, `__MIRROR_CODEBERG_URL__`,
+(`__REPOSITORY_URL__`, `__REPOSITORY_OWNER__`, `__MIRROR_CODEBERG_URL__`,
 `__MIRROR_CODEBERG_ORG__`, `__MIRROR_GITHUB_ORG__`, `__MOBILE_REPOSITORY_NAME__`),
-которые Dockerfile подставляет при сборке из одноимённых переменных организации
-(с проверкой формата: хосты — голые `https://`-origin, названия — slug). Скрипты
+которые Dockerfile подставляет при сборке из одноимённых build-args: значения
+берутся из контекста раннера (`GITHUB_SERVER_URL` / `github.repository_owner`),
+зеркала — из переменных организации (с проверкой формата: хосты — голые `https://`-origin, названия — slug). Скрипты
 обновления на VPS собирают URL API из тех же переменных, а dev-сервер
 подставляет их из `.env`. `validate.mjs` не даёт вернуть литеральные хосты.
 
@@ -172,12 +173,15 @@ npm run dev                      # локальный просмотр на http
    |---|---|
    | `LANDING_HOSTNAME` / `WWW_HOSTNAME` | `slovo-propovedi.ru` / `www.slovo-propovedi.ru` |
    | `WEB_HOSTNAME` / `DOCS_HOSTNAME` | `app.slovo-propovedi.ru` / `docs.slovo-propovedi.ru` |
-   | `REPOSITORY_URL` / `REPOSITORY_ORG` | `https://git.lightnode.ru` / `Slovo_Propovedi` |
    | `MIRROR_CODEBERG_URL` / `MIRROR_CODEBERG_ORG` | `https://codeberg.org` / `Slovo_Propovedi` |
    | `MIRROR_GITHUB_ORG` | `Slovo-Propovedi` (на GitHub — через дефис) |
    | `MOBILE_REPOSITORY_NAME` | `slovo-propovedi-mobile` |
    | `TRAEFIK_NETWORK` / `TRAEFIK_SERVICE` / `BUILDX_BUILDER` | `traefik` / `slovo-traefik.service` / `slovo-constrained` — имена из playbook |
    | `APK_SIGNER_SHA256` | `43f8df039d37ade81a17b7ae8edf8e431c7fd87ba160fd8c09c6281a54706d9b` — SHA-256 сертификата release-ключа (64 hex, как печатает `apksigner verify --print-certs`); при смене ключа — список через запятую |
+
+   Координаты основного Forgejo раннер сам предоставляет как
+   `GITHUB_SERVER_URL` / `GITHUB_REPOSITORY` (org —
+   `github.repository_owner`).
 
 4. Раннер: `ubuntu-24.04`.
 5. DNS: A-записи для apex (`slovo-propovedi.ru`) и `www` указывают на VPS.

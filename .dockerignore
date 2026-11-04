@@ -1,8 +1,10 @@
-# Keep the image lean: only the static site + nginx config are needed.
-node_modules
-.git
-.forgejo
-.husky
-scripts
-*.md
-test-apk
+# The image ships only the static site: the four root files the Dockerfile
+# COPYs, the assets/ subtree and the Dockerfile itself — not scripts, docs,
+# node_modules or development files.
+*
+!index.html
+!nginx.conf
+!robots.txt
+!sitemap.xml
+!assets/**
+!Dockerfile

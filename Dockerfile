@@ -8,6 +8,16 @@ FROM nginx:alpine
 LABEL org.opencontainers.image.title="slovo-propovedi-landing" \
   org.opencontainers.image.description="Landing page for the Slovo Propovedi Android app with direct APK download"
 
+# OCI source label: links the image in the Forgejo container registry back to
+# this repository's Packages tab (belt-and-suspenders alongside the
+# registry-path naming convention). No hardcoded value: the release workflow
+# injects it via --build-arg OCI_IMAGE_SOURCE="${REPOSITORY_URL}/${GITHUB_REPOSITORY}".
+# The ARG (no default) is declared in this stage scope, next to the LABEL it
+# feeds (Dockerfile limitation: one variable per LABEL instruction).
+ARG OCI_IMAGE_SOURCE
+
+LABEL org.opencontainers.image.source=$OCI_IMAGE_SOURCE
+
 # NOTE: /usr/share/nginx/html/apk is a read-only bind-mount from the host
 # /slovo/landing/apk supplied by the systemd unit. Do NOT COPY apk files into
 # the image. Docker creates the mountpoint automatically when the bind mount is
@@ -23,12 +33,16 @@ LABEL org.opencontainers.image.title="slovo-propovedi-landing" \
 ARG WEB_HOSTNAME
 ARG LANDING_HOSTNAME
 ARG DOCS_HOSTNAME
-# Mobile repository coordinates (Forgejo org variables) feed the release links
-# in index.html, the release-host probes in main.js and the CSP connect-src in
-# nginx.conf. REPOSITORY_URL / MIRROR_CODEBERG_URL are bare https origins
-# (no path); the org/repo names are plain slugs.
+# Mobile repository coordinates feed the release links in index.html, the
+# release-host probes in main.js and the CSP connect-src in nginx.conf. The
+# primary Forgejo URL and owner (REPOSITORY_URL / REPOSITORY_OWNER) come from the
+# runner context (GITHUB_SERVER_URL / github.repository_owner) via build-args
+# in release.yml; MIRROR_CODEBERG_URL/_ORG, MIRROR_GITHUB_ORG and
+# MOBILE_REPOSITORY_NAME remain Forgejo org variables. REPOSITORY_URL /
+# MIRROR_CODEBERG_URL are bare https origins (no path); the org/repo names
+# are plain slugs.
 ARG REPOSITORY_URL
-ARG REPOSITORY_ORG
+ARG REPOSITORY_OWNER
 ARG MIRROR_CODEBERG_URL
 ARG MIRROR_CODEBERG_ORG
 ARG MIRROR_GITHUB_ORG
@@ -63,7 +77,7 @@ RUN set -e; \
         exit 1; \
       fi; \
     done; \
-    for pair in "REPOSITORY_ORG=$REPOSITORY_ORG" "MIRROR_CODEBERG_ORG=$MIRROR_CODEBERG_ORG" "MIRROR_GITHUB_ORG=$MIRROR_GITHUB_ORG" "MOBILE_REPOSITORY_NAME=$MOBILE_REPOSITORY_NAME"; do \
+    for pair in "REPOSITORY_OWNER=$REPOSITORY_OWNER" "MIRROR_CODEBERG_ORG=$MIRROR_CODEBERG_ORG" "MIRROR_GITHUB_ORG=$MIRROR_GITHUB_ORG" "MOBILE_REPOSITORY_NAME=$MOBILE_REPOSITORY_NAME"; do \
       name="${pair%%=*}"; value="${pair#*=}"; \
       if ! printf '%s' "$value" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then \
         echo "ERROR: $name must be a plain org/repo slug ([A-Za-z0-9._-]): '$value'" >&2; \
@@ -85,7 +99,7 @@ RUN sed -i \
 # behind fails the build.
 RUN sed -i \
       -e "s|__REPOSITORY_URL__|${REPOSITORY_URL}|g" \
-      -e "s|__REPOSITORY_ORG__|${REPOSITORY_ORG}|g" \
+      -e "s|__REPOSITORY_OWNER__|${REPOSITORY_OWNER}|g" \
       -e "s|__MIRROR_CODEBERG_URL__|${MIRROR_CODEBERG_URL}|g" \
       -e "s|__MIRROR_CODEBERG_ORG__|${MIRROR_CODEBERG_ORG}|g" \
       -e "s|__MIRROR_GITHUB_ORG__|${MIRROR_GITHUB_ORG}|g" \

@@ -9,9 +9,16 @@ set -euo pipefail
 # `slovo-landing` so it never collides with the PRODUCTION docs router on the
 # shared Traefik instance.
 #
-# Usage:   DEPLOY_TAG=v1.0.0 LANDING_HOSTNAME=example.com WWW_HOSTNAME=www.example.com \
+# Usage:   DEPLOY_TAG=v1.0.0 IMAGE_REF=git.lightnode.ru/slovo_propovedi/slovo-propovedi-landing \
+#          LANDING_HOSTNAME=example.com WWW_HOSTNAME=www.example.com \
 #          WEB_HOSTNAME=app.example.com DOCS_HOSTNAME=docs.example.com bash vps-deploy.sh
-# All hostnames are required env — there are NO production defaults baked in.
+# All hostnames + IMAGE_REF are required env — there are NO production defaults baked in.
+#
+# The release workflow builds the image (hostname/repository build args baked
+# in) with the shared `slovo-constrained` buildx builder ON this host and
+# pushes it to the Forgejo container registry; this script only pulls the
+# published tag. No source tree is shipped to the VPS. The registry is public
+# (public org), so the pull is anonymous.
 #
 # Scope: this script owns ONLY the slovo-landing container, its own
 # `slovo-landing` Docker network, and the landing-specific APK/screenshot
@@ -28,17 +35,23 @@ set -euo pipefail
 DEPLOY_TAG="${DEPLOY_TAG:?ERROR: DEPLOY_TAG is required (e.g. v1.0.0)}"
 LANDING_HOSTNAME="${LANDING_HOSTNAME:?ERROR: LANDING_HOSTNAME is required (e.g. slovo-propovedi.ru)}"
 WWW_HOSTNAME="${WWW_HOSTNAME:?ERROR: WWW_HOSTNAME is required (e.g. www.example.com)}"
-# Mobile repository coordinates (Forgejo org variables) — baked into the image
-# (release links, release-host probes, CSP). The Dockerfile validates them.
-REPOSITORY_URL="${REPOSITORY_URL:?ERROR: REPOSITORY_URL is required (e.g. https://git.example.com)}"
-REPOSITORY_ORG="${REPOSITORY_ORG:?ERROR: REPOSITORY_ORG is required (Forgejo org variable)}"
+# Mobile repository coordinates, forwarded by the release workflow: the
+# primary Forgejo URL/org from runner env (GITHUB_SERVER_URL /
+# github.repository_owner), mirrors and repo name from Forgejo org variables.
+# They arrive already baked into the image (release links, release-host
+# probes, CSP); the Dockerfile validated them at build time.
+REPOSITORY_URL="${REPOSITORY_URL:?ERROR: REPOSITORY_URL is required (provided by CI from the runner env)}"
+REPOSITORY_OWNER="${REPOSITORY_OWNER:?ERROR: REPOSITORY_OWNER is required (provided by CI from the runner env)}"
 MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL:?ERROR: MIRROR_CODEBERG_URL is required (Forgejo org variable)}"
 MIRROR_CODEBERG_ORG="${MIRROR_CODEBERG_ORG:?ERROR: MIRROR_CODEBERG_ORG is required (Forgejo org variable)}"
 MIRROR_GITHUB_ORG="${MIRROR_GITHUB_ORG:?ERROR: MIRROR_GITHUB_ORG is required (Forgejo org variable)}"
 MOBILE_REPOSITORY_NAME="${MOBILE_REPOSITORY_NAME:?ERROR: MOBILE_REPOSITORY_NAME is required (Forgejo org variable)}"
 BASE_PATH="${BASE_PATH:-/slovo/landing}"
-SRC_PATH="${SRC_PATH:-/slovo/landing/container-src}"
-IMAGE_NAME="${IMAGE_NAME:-slovo-landing:latest}"
+# Full registry image ref (no tag) — passed by the release workflow. Required,
+# no default: a renamed registry/org must fail loudly instead of pulling
+# or creating a container from a stale local image.
+IMAGE_REF="${IMAGE_REF:?ERROR: IMAGE_REF is required (full registry image ref, passed by the release workflow)}"
+IMAGE="$IMAGE_REF:$DEPLOY_TAG"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 CONTAINER_NETWORK="${CONTAINER_NETWORK:-slovo-landing}"
 MEMORY_LIMIT="${MEMORY_LIMIT:-64m}"
@@ -87,7 +100,7 @@ echo "==============================================================="
 
 # --- Verify prerequisites (playbook-owned; never auto-provisioned) ---
 # This script owns ONLY the slovo-landing container and the slovo-landing
-# network (created in step 4), plus the landing-specific refresh units.
+# network (created in step 3), plus the landing-specific refresh units.
 # Everything checked below is provisioned by the slovo-propovedi playbook
 # (`just setup-all`). Anything missing fails fast with a clear message instead
 # of a half-provisioned box or a crash-looping service.
@@ -127,8 +140,8 @@ for svc in $REQUIRED_SERVICES; do
 done
 echo "  services: OK ($REQUIRED_SERVICES)"
 
-# Shared Docker networks the container attaches to at runtime (step 6). The
-# slovo-landing network itself is this script's own and is created in step 4.
+# Shared Docker networks the container attaches to at runtime (step 5). The
+# slovo-landing network itself is this script's own and is created in step 3.
 # shellcheck disable=SC2086 # word splitting of the space-separated list is intended
 for net in $REQUIRED_NETWORKS; do
   docker network inspect "$net" >/dev/null 2>&1 \
@@ -138,9 +151,9 @@ echo "  networks: OK ($REQUIRED_NETWORKS)"
 
 # --- 1. Create paths ---
 echo ">> Ensuring paths exist..."
-mkdir -p "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
-chown slovo:slovo "$BASE_PATH" "$SRC_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
-chmod 0750 "$BASE_PATH" "$SRC_PATH"
+mkdir -p "$BASE_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
+chown slovo:slovo "$BASE_PATH" "$BASE_PATH/apk" "$BASE_PATH/screenshots"
+chmod 0750 "$BASE_PATH"
 chmod 0755 "$BASE_PATH/apk" "$BASE_PATH/screenshots"
 # The refresh units run as `slovo`: content written by earlier root-run
 # refreshes (APKs, manifests, lock files) must become slovo-owned, or the
@@ -150,18 +163,7 @@ chown -R slovo:slovo "$BASE_PATH/apk" "$BASE_PATH/screenshots"
 # metadata anonymously — no API tokens are provisioned (a leftover
 # $BASE_PATH/tokens dir from older deploys is unused and safe to delete).
 
-# --- 2. Verify source code ---
-# Source code is transferred by the Forgejo workflow (tar+ssh) before this
-# script runs. No git operations needed — the runner already checked out the tag.
-echo ">> Verifying source code at $SRC_PATH..."
-if [ ! -f "$SRC_PATH/Dockerfile" ]; then
-  echo "ERROR: No source code found at $SRC_PATH."
-  echo "       The workflow should transfer the code before running this script."
-  exit 1
-fi
-chown -R slovo:slovo "$SRC_PATH"
-
-# --- 3. Write Traefik labels ---
+# --- 2. Write Traefik labels ---
 # NOTE: with --label-file the `$1`/`$2` in the redirect regex are LITERAL —
 # do NOT use `$$` escaping (that is docker-compose-only).
 echo ">> Writing Traefik labels..."
@@ -188,29 +190,24 @@ echo ">> Writing Traefik labels..."
 chown slovo:slovo "$BASE_PATH/labels"
 chmod 0640 "$BASE_PATH/labels"
 
-# --- 4. Create Docker network (if missing) ---
+# --- 3. Create Docker network (if missing) ---
 echo ">> Ensuring Docker network '$CONTAINER_NETWORK'..."
 docker network inspect "$CONTAINER_NETWORK" >/dev/null 2>&1 \
   || docker network create "$CONTAINER_NETWORK"
 
-# --- 5. Build Docker image ---
-echo ">> Building Docker image (this may take a minute)..."
-docker buildx build \
-  --builder="$BUILDER_NAME" \
-  --load \
-  --tag="$IMAGE_NAME" \
-  --build-arg WEB_HOSTNAME="$WEB_HOSTNAME" \
-  --build-arg LANDING_HOSTNAME="$LANDING_HOSTNAME" \
-  --build-arg DOCS_HOSTNAME="$DOCS_HOSTNAME" \
-  --build-arg REPOSITORY_URL="$REPOSITORY_URL" \
-  --build-arg REPOSITORY_ORG="$REPOSITORY_ORG" \
-  --build-arg MIRROR_CODEBERG_URL="$MIRROR_CODEBERG_URL" \
-  --build-arg MIRROR_CODEBERG_ORG="$MIRROR_CODEBERG_ORG" \
-  --build-arg MIRROR_GITHUB_ORG="$MIRROR_GITHUB_ORG" \
-  --build-arg MOBILE_REPOSITORY_NAME="$MOBILE_REPOSITORY_NAME" \
-  "$SRC_PATH"
+# --- 4. Pull the release image from the registry ---
+# The image was built and pushed by the release workflow through the shared
+# `slovo-constrained` builder (hostname/repository build args baked in). The
+# org is public, so the pull is anonymous — no registry credentials are
+# stored on the VPS. The version tag stays in the registry, keeping old
+# releases redeployable for rollback.
+echo ">> Pulling image $IMAGE..."
+if ! docker pull "$IMAGE"; then
+  echo "ERROR: docker pull failed for $IMAGE (built and pushed by the release workflow?)"
+  exit 1
+fi
 
-# --- 6. Write systemd unit ---
+# --- 5. Write systemd unit ---
 echo ">> Writing systemd unit..."
 cat > /etc/systemd/system/slovo-landing.service <<EOF
 [Unit]
@@ -239,7 +236,7 @@ ExecStartPre=/usr/bin/env docker create \\
     --memory=$MEMORY_LIMIT \\
     --mount type=bind,src=$BASE_PATH/apk,dst=/usr/share/nginx/html/apk,ro \\
     --mount type=bind,src=$BASE_PATH/screenshots,dst=/usr/share/nginx/html/screenshots,ro \\
-    $IMAGE_NAME
+    $IMAGE
 ExecStartPre=/usr/bin/env docker network connect $TRAEFIK_NETWORK slovo-landing
 ExecStart=/usr/bin/env docker start --attach slovo-landing
 ExecStop=-/usr/bin/env docker stop -t $STOP_GRACE slovo-landing
@@ -251,12 +248,12 @@ SyslogIdentifier=slovo-landing
 WantedBy=multi-user.target
 EOF
 
-# --- 7. Reload and restart ---
+# --- 6. Reload and restart ---
 echo ">> Reloading systemd and restarting service..."
 systemctl daemon-reload
 systemctl restart slovo-landing.service
 
-# --- 8. Verify ---
+# --- 7. Verify ---
 sleep 2
 if systemctl is-active --quiet slovo-landing.service; then
   echo "[OK] slovo-landing.service is running"
@@ -268,7 +265,7 @@ else
   exit 1
 fi
 
-# --- 9. Refresh prerequisites (root) ---
+# --- 8. Refresh prerequisites (root) ---
 # The refresh scripts run unprivileged and cannot install packages, so the
 # deploy (root) provides them. apksigner verifies the APK signing certificate.
 echo ">> Ensuring refresh prerequisites..."
@@ -325,12 +322,13 @@ UMask=0022
 UNIT
 }
 
-# --- 9a. Install APK refresh units ---
-# The refresh script ships inside the freshly-deployed container-src; install it
-# into the persistent BASE_PATH so it survives future deploys that replace src.
-# Root-owned and not writable by slovo, but executable by the slovo group.
+# --- 8a. Install APK refresh units ---
+# The refresh scripts are /tmp-staged by the release workflow right before the
+# deploy; install them into the persistent BASE_PATH so they survive future
+# deploys without a source tree. Root-owned and not writable by slovo, but
+# executable by the slovo group.
 echo ">> Installing APK refresh units..."
-install -m 0750 -o root -g slovo "$SRC_PATH/scripts/vps-refresh-apk.sh" "$BASE_PATH/vps-refresh-apk.sh"
+install -m 0750 -o root -g slovo /tmp/vps-refresh-apk.sh "$BASE_PATH/vps-refresh-apk.sh"
 
 {
   cat <<EOF
@@ -361,11 +359,10 @@ systemctl daemon-reload
 systemctl enable --now slovo-landing-refresh.timer
 echo "[OK] slovo-landing-refresh.timer enabled (twice daily)"
 
-# --- 9b. Install screenshots refresh units ---
-# Same pattern as the APK refresh: the script ships in container-src and is
-# installed into the persistent BASE_PATH so it survives future deploys.
+# --- 8b. Install screenshots refresh units ---
+# Same /tmp-staged pattern as the APK refresh above.
 echo ">> Installing screenshots refresh units..."
-install -m 0750 -o root -g slovo "$SRC_PATH/scripts/vps-refresh-screenshots.sh" "$BASE_PATH/vps-refresh-screenshots.sh"
+install -m 0750 -o root -g slovo /tmp/vps-refresh-screenshots.sh "$BASE_PATH/vps-refresh-screenshots.sh"
 
 {
   cat <<EOF
@@ -396,19 +393,19 @@ systemctl daemon-reload
 systemctl enable --now slovo-landing-refresh-shots.timer
 echo "[OK] slovo-landing-refresh-shots.timer enabled (twice daily)"
 
-# --- 10. Initial refresh ---
+# --- 9. Initial refresh ---
 echo ">> Triggering initial APK refresh..."
 systemctl start slovo-landing-refresh.service || echo "  WARN: initial APK refresh failed; timer will retry"
 echo ">> Triggering initial screenshots refresh..."
 systemctl start slovo-landing-refresh-shots.service || echo "  WARN: initial screenshots refresh failed; timer will retry"
 
-# --- 11. Post-deploy cleanup (non-fatal, best effort) ---
-# Runs only after step 8 confirmed the new service is active. Bounds disk growth
-# on the 2GB VPS across repeated releases: prunes dangling images only (no
-# --all; the previous release's image becomes dangling once
-# slovo-landing:latest is retagged) and caps the buildx builder cache.
-# Strictly non-fatal — with `set -e` a cleanup failure must never fail a
-# successful deployment, so errors are logged as warnings.
+# --- 10. Post-deploy cleanup (non-fatal, best effort) ---
+# Runs only after step 7 confirmed the new service is active. Bounds disk
+# growth on the 4 GB VPS across repeated releases: prunes dangling images only
+# (no --all; old release tags stay on disk and in the registry on purpose —
+# they are the rollback path) and caps the buildx builder cache shared with
+# the CI release builds. Strictly non-fatal — with `set -e` a cleanup failure
+# must never fail a successful deployment, so errors are logged as warnings.
 echo ">> Pruning dangling Docker images..."
 if ! docker image prune --force; then
   echo "WARN: docker image prune failed — skipping dangling image cleanup" >&2
@@ -419,6 +416,6 @@ if ! docker buildx prune --builder "$BUILDER_NAME" --keep-storage 2GB --force; t
   echo "WARN: docker buildx prune failed — skipping builder cache cleanup" >&2
 fi
 
-# --- 12. Cleanup ---
+# --- 11. Cleanup ---
 rm -f /tmp/vps-deploy.sh
 echo ">> Done."
