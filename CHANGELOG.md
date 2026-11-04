@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-11-04
+
+### Maintenance
+
+- Collapse per-mirror URL/org variables into owner-bearing URL
+- Group ci/chore commits under maintenance in bump-version
+
 ## [0.9.4] - 2026-11-04
 
 ## [0.9.3] - 2026-10-26
@@ -159,6 +166,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile (nginx:alpine) with read-only `/apk` bind-mount placeholder and healthcheck
 - Version bump script (`bump-version.mjs`) and QR regeneration script (`generate-qr.mjs`)
 
+[0.9.5]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.5
 [0.9.4]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.4
 [0.9.3]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.3
 [0.9.2]: https://git.lightnode.ru/Slovo_Propovedi/slovo-propovedi-landing/src/tag/v0.9.2
