@@ -385,15 +385,14 @@ if (html) {
 // The coordinates are baked by the Dockerfile at image build: the primary
 // Forgejo URL/org from the runner env (GITHUB_SERVER_URL /
 // github.repository_owner, forwarded as build args by release.yml),
-// MIRROR_CODEBERG_URL/_ORG, MIRROR_GITHUB_ORG and MOBILE_REPOSITORY_NAME from
+// MIRROR_CODEBERG_URL, MIRROR_GITHUB_URL and MOBILE_REPOSITORY_NAME from
 // Forgejo org variables. A literal host or org in the served files would
 // silently drift from the organisation settings.
 const REPO_PLACEHOLDERS = [
   'REPOSITORY_URL',
   'REPOSITORY_OWNER',
   'MIRROR_CODEBERG_URL',
-  'MIRROR_CODEBERG_ORG',
-  'MIRROR_GITHUB_ORG',
+  'MIRROR_GITHUB_URL',
   'MOBILE_REPOSITORY_NAME',
 ]
 for (const file of ['index.html', 'assets/js/main.js', 'nginx.conf']) {
@@ -484,7 +483,7 @@ if (!existsSync('.env.example')) {
   if (!example.includes('WEB_HOSTNAME')) bad('.env.example: missing WEB_HOSTNAME')
   if (!example.includes('LANDING_HOSTNAME')) bad('.env.example: missing LANDING_HOSTNAME')
   if (!example.includes('DOCS_HOSTNAME')) bad('.env.example: missing DOCS_HOSTNAME')
-  for (const name of ['REPOSITORY_OWNER', 'MIRROR_CODEBERG_ORG', 'MIRROR_GITHUB_ORG', 'MOBILE_REPOSITORY_NAME']) {
+  for (const name of ['REPOSITORY_OWNER', 'MIRROR_CODEBERG_URL', 'MIRROR_GITHUB_URL', 'MOBILE_REPOSITORY_NAME']) {
     if (!example.includes(name)) bad(`.env.example: missing ${name}`)
   }
 }

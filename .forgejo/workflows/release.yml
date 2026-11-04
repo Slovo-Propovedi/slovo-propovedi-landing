@@ -61,27 +61,28 @@ jobs:
         run: |
           set -e
           missing=0
-          for var_name in LANDING_HOSTNAME WEB_HOSTNAME DOCS_HOSTNAME WWW_HOSTNAME MIRROR_CODEBERG_URL MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME APK_SIGNER_SHA256 TRAEFIK_NETWORK TRAEFIK_SERVICE BUILDX_BUILDER PACKAGE_REGISTRY_TOKEN; do
+          for var_name in LANDING_HOSTNAME WEB_HOSTNAME DOCS_HOSTNAME WWW_HOSTNAME MIRROR_CODEBERG_URL MIRROR_GITHUB_URL MOBILE_REPOSITORY_NAME APK_SIGNER_SHA256 TRAEFIK_NETWORK TRAEFIK_SERVICE BUILDX_BUILDER PACKAGE_REGISTRY_TOKEN; do
             if [ -z "${!var_name}" ]; then
               echo "::error::$var_name is not set — add it as an org/repo Actions variable"
               missing=1
             fi
           done
           # Repository coordinates land in /etc/default/slovo-landing (read by
-          # systemd and the refresh scripts) and are baked into the image — the
-          # hosts must be bare https origins and the org/repo names plain slugs,
-          # so no value can carry quotes, spaces or `$` (same contract as the
-          # Dockerfile and the refresh scripts). REPOSITORY_URL/_OWNER are not
-          # in the variables loops above: the deploy step maps
-          # github.server_url / github.repository_owner into those names on
-          # every run.
-          for var_name in MIRROR_CODEBERG_URL; do
-            if [ -n "${!var_name}" ] && ! printf '%s' "${!var_name}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
-              echo "::error::$var_name must be a bare https origin, no path (got '${!var_name}')"
+          # systemd and the refresh scripts) and are baked into the image —
+          # mirror hosts arrive as one https URL each with the owner as its
+          # path (different owner spellings per host are natural), the repo
+          # name is a plain slug, so no value can carry quotes, spaces or `$`
+          # (same contract as the Dockerfile and the refresh scripts).
+          # REPOSITORY_URL/_OWNER are not in the variables loops above: the
+          # deploy step maps github.server_url / github.repository_owner into
+          # those names on every run.
+          for var_name in MIRROR_CODEBERG_URL MIRROR_GITHUB_URL; do
+            if [ -n "${!var_name}" ] && ! printf '%s' "${!var_name}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+              echo "::error::$var_name must be an https URL with the owner as its only path segment, e.g. https://codeberg.org/Slovo_Propovedi (no trailing slash, no deeper path)"
               missing=1
             fi
           done
-          for var_name in MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME; do
+          for var_name in MOBILE_REPOSITORY_NAME; do
             if [ -n "${!var_name}" ] && ! printf '%s' "${!var_name}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
               echo "::error::$var_name must be a plain org/repo slug (got '${!var_name}')"
               missing=1
@@ -96,15 +97,14 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
-          echo "All required vars present: LANDING_HOSTNAME=$LANDING_HOSTNAME WWW_HOSTNAME=$WWW_HOSTNAME WEB_HOSTNAME=$WEB_HOSTNAME DOCS_HOSTNAME=$DOCS_HOSTNAME REPOSITORY_URL=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY MIRROR_CODEBERG_URL=$MIRROR_CODEBERG_URL/$MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG=$MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME=$MOBILE_REPOSITORY_NAME"
+          echo "All required vars present: LANDING_HOSTNAME=$LANDING_HOSTNAME WWW_HOSTNAME=$WWW_HOSTNAME WEB_HOSTNAME=$WEB_HOSTNAME DOCS_HOSTNAME=$DOCS_HOSTNAME REPOSITORY_URL=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY MIRROR_CODEBERG_URL=$MIRROR_CODEBERG_URL MIRROR_GITHUB_URL=$MIRROR_GITHUB_URL MOBILE_REPOSITORY_NAME=$MOBILE_REPOSITORY_NAME"
         env:
           LANDING_HOSTNAME: ${{ vars.LANDING_HOSTNAME }}
           WEB_HOSTNAME: ${{ vars.WEB_HOSTNAME }}
           DOCS_HOSTNAME: ${{ vars.DOCS_HOSTNAME }}
           WWW_HOSTNAME: ${{ vars.WWW_HOSTNAME }}
           MIRROR_CODEBERG_URL: ${{ vars.MIRROR_CODEBERG_URL }}
-          MIRROR_CODEBERG_ORG: ${{ vars.MIRROR_CODEBERG_ORG }}
-          MIRROR_GITHUB_ORG: ${{ vars.MIRROR_GITHUB_ORG }}
+          MIRROR_GITHUB_URL: ${{ vars.MIRROR_GITHUB_URL }}
           MOBILE_REPOSITORY_NAME: ${{ vars.MOBILE_REPOSITORY_NAME }}
           APK_SIGNER_SHA256: ${{ vars.APK_SIGNER_SHA256 }}
           TRAEFIK_NETWORK: ${{ vars.TRAEFIK_NETWORK }}
@@ -162,8 +162,7 @@ jobs:
           REPOSITORY_URL: ${{ github.server_url }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           MIRROR_CODEBERG_URL: ${{ vars.MIRROR_CODEBERG_URL }}
-          MIRROR_CODEBERG_ORG: ${{ vars.MIRROR_CODEBERG_ORG }}
-          MIRROR_GITHUB_ORG: ${{ vars.MIRROR_GITHUB_ORG }}
+          MIRROR_GITHUB_URL: ${{ vars.MIRROR_GITHUB_URL }}
           MOBILE_REPOSITORY_NAME: ${{ vars.MOBILE_REPOSITORY_NAME }}
           BUILDX_BUILDER: ${{ vars.BUILDX_BUILDER }}
           DEPLOY_TAG: ${{ github.ref_name }}
@@ -239,8 +238,7 @@ jobs:
             --build-arg REPOSITORY_URL="$REPOSITORY_URL" \
             --build-arg REPOSITORY_OWNER="$REPOSITORY_OWNER" \
             --build-arg MIRROR_CODEBERG_URL="$MIRROR_CODEBERG_URL" \
-            --build-arg MIRROR_CODEBERG_ORG="$MIRROR_CODEBERG_ORG" \
-            --build-arg MIRROR_GITHUB_ORG="$MIRROR_GITHUB_ORG" \
+            --build-arg MIRROR_GITHUB_URL="$MIRROR_GITHUB_URL" \
             --build-arg MOBILE_REPOSITORY_NAME="$MOBILE_REPOSITORY_NAME" \
             --build-arg OCI_IMAGE_SOURCE="${REPOSITORY_URL}/${GITHUB_REPOSITORY}" \
             .
@@ -259,8 +257,7 @@ jobs:
           REPOSITORY_URL: ${{ github.server_url }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           MIRROR_CODEBERG_URL: ${{ vars.MIRROR_CODEBERG_URL }}
-          MIRROR_CODEBERG_ORG: ${{ vars.MIRROR_CODEBERG_ORG }}
-          MIRROR_GITHUB_ORG: ${{ vars.MIRROR_GITHUB_ORG }}
+          MIRROR_GITHUB_URL: ${{ vars.MIRROR_GITHUB_URL }}
           MOBILE_REPOSITORY_NAME: ${{ vars.MOBILE_REPOSITORY_NAME }}
           APK_SIGNER_SHA256: ${{ vars.APK_SIGNER_SHA256 }}
           TRAEFIK_NETWORK: ${{ vars.TRAEFIK_NETWORK }}
@@ -278,8 +275,7 @@ jobs:
           REPOSITORY_URL=$REPOSITORY_URL
           REPOSITORY_OWNER=$REPOSITORY_OWNER
           MIRROR_CODEBERG_URL=$MIRROR_CODEBERG_URL
-          MIRROR_CODEBERG_ORG=$MIRROR_CODEBERG_ORG
-          MIRROR_GITHUB_ORG=$MIRROR_GITHUB_ORG
+          MIRROR_GITHUB_URL=$MIRROR_GITHUB_URL
           MOBILE_REPOSITORY_NAME=$MOBILE_REPOSITORY_NAME
           APK_SIGNER_SHA256=$APK_SIGNER_SHA256
           EOF
@@ -298,9 +294,9 @@ jobs:
             echo "::error::IMAGE_REF is not set — the registry build step must export it"
             exit 1
           fi
-          REMOTE_ENV="$(printf 'DEPLOY_TAG=%q IMAGE_REF=%q LANDING_HOSTNAME=%q WWW_HOSTNAME=%q WEB_HOSTNAME=%q DOCS_HOSTNAME=%q REPOSITORY_URL=%q REPOSITORY_OWNER=%q MIRROR_CODEBERG_URL=%q MIRROR_CODEBERG_ORG=%q MIRROR_GITHUB_ORG=%q MOBILE_REPOSITORY_NAME=%q TRAEFIK_NETWORK=%q TRAEFIK_SERVICE=%q BUILDX_BUILDER=%q' \
+          REMOTE_ENV="$(printf 'DEPLOY_TAG=%q IMAGE_REF=%q LANDING_HOSTNAME=%q WWW_HOSTNAME=%q WEB_HOSTNAME=%q DOCS_HOSTNAME=%q REPOSITORY_URL=%q REPOSITORY_OWNER=%q MIRROR_CODEBERG_URL=%q MIRROR_GITHUB_URL=%q MOBILE_REPOSITORY_NAME=%q TRAEFIK_NETWORK=%q TRAEFIK_SERVICE=%q BUILDX_BUILDER=%q' \
             "$DEPLOY_TAG" "$IMAGE_REF" "$LANDING_HOSTNAME" "$WWW_HOSTNAME" "$WEB_HOSTNAME" "$DOCS_HOSTNAME" \
-            "$REPOSITORY_URL" "$REPOSITORY_OWNER" "$MIRROR_CODEBERG_URL" "$MIRROR_CODEBERG_ORG" "$MIRROR_GITHUB_ORG" "$MOBILE_REPOSITORY_NAME" \
+            "$REPOSITORY_URL" "$REPOSITORY_OWNER" "$MIRROR_CODEBERG_URL" "$MIRROR_GITHUB_URL" "$MOBILE_REPOSITORY_NAME" \
             "$TRAEFIK_NETWORK" "$TRAEFIK_SERVICE" "$BUILDX_BUILDER")"
           ssh "$SSH_TARGET" "chmod +x /tmp/vps-deploy.sh && $REMOTE_ENV bash /tmp/vps-deploy.sh"
 

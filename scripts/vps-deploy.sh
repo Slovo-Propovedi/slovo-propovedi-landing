@@ -42,9 +42,8 @@ WWW_HOSTNAME="${WWW_HOSTNAME:?ERROR: WWW_HOSTNAME is required (e.g. www.example.
 # probes, CSP); the Dockerfile validated them at build time.
 REPOSITORY_URL="${REPOSITORY_URL:?ERROR: REPOSITORY_URL is required (provided by CI from the runner env)}"
 REPOSITORY_OWNER="${REPOSITORY_OWNER:?ERROR: REPOSITORY_OWNER is required (provided by CI from the runner env)}"
-MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL:?ERROR: MIRROR_CODEBERG_URL is required (Forgejo org variable)}"
-MIRROR_CODEBERG_ORG="${MIRROR_CODEBERG_ORG:?ERROR: MIRROR_CODEBERG_ORG is required (Forgejo org variable)}"
-MIRROR_GITHUB_ORG="${MIRROR_GITHUB_ORG:?ERROR: MIRROR_GITHUB_ORG is required (Forgejo org variable)}"
+MIRROR_CODEBERG_URL="${MIRROR_CODEBERG_URL:?ERROR: MIRROR_CODEBERG_URL is required (Forgejo org variable, owner-bearing URL)}"
+MIRROR_GITHUB_URL="${MIRROR_GITHUB_URL:?ERROR: MIRROR_GITHUB_URL is required (Forgejo org variable, owner-bearing URL)}"
 MOBILE_REPOSITORY_NAME="${MOBILE_REPOSITORY_NAME:?ERROR: MOBILE_REPOSITORY_NAME is required (Forgejo org variable)}"
 BASE_PATH="${BASE_PATH:-/slovo/landing}"
 # Full registry image ref (no tag) — passed by the release workflow. Required,

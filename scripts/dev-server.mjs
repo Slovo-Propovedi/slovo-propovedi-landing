@@ -24,18 +24,20 @@ const DEFAULTS = {
 }
 
 // Mobile repository coordinates baked into index.html / main.js (same names as
-// the Dockerfile build args; mirrors and repo name via Forgejo org variables,
-// the primary Forgejo coords runner-derived in CI).
+// the Dockerfile build args; mirrors travel as ONE owner-bearing https URL
+// each + the repo name via Forgejo org variables, the primary Forgejo coords
+// runner-derived in CI).
 const REPO_KEYS = [
   'REPOSITORY_URL',
   'REPOSITORY_OWNER',
   'MIRROR_CODEBERG_URL',
-  'MIRROR_CODEBERG_ORG',
-  'MIRROR_GITHUB_ORG',
+  'MIRROR_GITHUB_URL',
   'MOBILE_REPOSITORY_NAME',
 ]
-const ORIGIN_KEYS = new Set(['REPOSITORY_URL', 'MIRROR_CODEBERG_URL'])
+const ORIGIN_KEYS = new Set(['REPOSITORY_URL'])
+const MIRROR_URL_KEYS = new Set(['MIRROR_CODEBERG_URL', 'MIRROR_GITHUB_URL'])
 const ORIGIN_PATTERN = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?$/
+const MIRROR_URL_PATTERN = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SLUG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 // Variables that must be provided; PORT is optional.
@@ -156,11 +158,14 @@ function loadConfig() {
     validateHostname(config.landingHostname, 'LANDING_HOSTNAME', config.sources.LANDING_HOSTNAME)
     validateHostname(config.docsHostname, 'DOCS_HOSTNAME', config.sources.DOCS_HOSTNAME)
     for (const name of REPO_KEYS) {
-      const pattern = ORIGIN_KEYS.has(name) ? ORIGIN_PATTERN : SLUG_PATTERN
+      const [pattern, contract] = ORIGIN_KEYS.has(name)
+        ? [ORIGIN_PATTERN, 'bare https origin, no path']
+        : MIRROR_URL_KEYS.has(name)
+          ? [MIRROR_URL_PATTERN, 'https URL with the owner as its only path segment (e.g. https://codeberg.org/Slovo_Propovedi)']
+          : [SLUG_PATTERN, 'plain org/repo slug']
       if (!pattern.test(config.repo[name])) {
         throw new Error(
-          `${name} (from ${config.repoSources[name]}) is invalid: "${config.repo[name]}" — ` +
-            (ORIGIN_KEYS.has(name) ? 'bare https origin, no path' : 'plain org/repo slug')
+          `${name} (from ${config.repoSources[name]}) is invalid: "${config.repo[name]}" — ${contract}`,
         )
       }
     }

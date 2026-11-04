@@ -14,20 +14,34 @@
    only network errors and timeouts are failures. */
 // Repository coordinates reach these placeholders as Dockerfile build-args:
 // the primary Forgejo URL/owner come from the runner (GITHUB_SERVER_URL,
-// github.repository_owner — no org variable needed), MIRROR_* and the repo
-// name remain Forgejo org variables (see release.yml); the dev server
-// substitutes the same placeholders from .env. Codeberg runs Forgejo, so both
-// use the same API shape; GitHub's hosts are fixed.
+// github.repository_owner — no org variable needed), the mirrors travel as ONE
+// owner-bearing https URL each (the owner is the only path segment, so
+// different owner spellings per host are natural) plus the repo name — all
+// Forgejo org variables (see release.yml); the dev server substitutes the same
+// placeholders from .env. Codeberg runs Forgejo, so both use the same API
+// shape; GitHub's hosts are fixed.
 const MOBILE_REPO = {
   forgejoUrl: '__REPOSITORY_URL__',
   forgejoOwner: '__REPOSITORY_OWNER__',
   codebergUrl: '__MIRROR_CODEBERG_URL__',
-  codebergOrg: '__MIRROR_CODEBERG_ORG__',
-  githubOrg: '__MIRROR_GITHUB_ORG__',
+  githubUrl: '__MIRROR_GITHUB_URL__',
   name: '__MOBILE_REPOSITORY_NAME__',
 }
 const forgejoRepoPath = (url, owner) => `${url}/${owner}/${MOBILE_REPO.name}`
 const forgejoReleaseApi = (url, owner) => `${url}/api/v1/repos/${owner}/${MOBILE_REPO.name}/releases/latest`
+
+// A mirror URL carries its owner as the only path segment (one URL = one
+// variable): origin and owner are parsed out of
+// the variable at the boundary, so a host or owner rename stays a variable
+// change, not a code change.
+const parseHostedUrl = (url) => {
+  const parsed = new URL(url)
+  const owner = parsed.pathname.replace(/^\/+/, '').replace(/\/+$/, '')
+  if (!owner) throw new Error(`mirror URL without owner path: ${url}`)
+  return { origin: parsed.origin, owner }
+}
+const codeberg = parseHostedUrl(MOBILE_REPO.codebergUrl)
+const github = parseHostedUrl(MOBILE_REPO.githubUrl)
 
 const RELEASES_FALLBACK_URL = `${forgejoRepoPath(MOBILE_REPO.forgejoUrl, MOBILE_REPO.forgejoOwner)}/releases`
 const RELEASE_SOURCES = [
@@ -36,12 +50,12 @@ const RELEASE_SOURCES = [
     page: RELEASES_FALLBACK_URL,
   },
   {
-    api: forgejoReleaseApi(MOBILE_REPO.codebergUrl, MOBILE_REPO.codebergOrg),
-    page: `${forgejoRepoPath(MOBILE_REPO.codebergUrl, MOBILE_REPO.codebergOrg)}/releases`,
+    api: forgejoReleaseApi(codeberg.origin, codeberg.owner),
+    page: `${forgejoRepoPath(codeberg.origin, codeberg.owner)}/releases`,
   },
   {
-    api: `https://api.github.com/repos/${MOBILE_REPO.githubOrg}/${MOBILE_REPO.name}/releases/latest`,
-    page: `https://github.com/${MOBILE_REPO.githubOrg}/${MOBILE_REPO.name}/releases`,
+    api: `https://api.github.com/repos/${github.owner}/${MOBILE_REPO.name}/releases/latest`,
+    page: `https://github.com/${github.owner}/${MOBILE_REPO.name}/releases`,
   },
 ]
 const RELEASE_PROBE_TIMEOUT = 4000

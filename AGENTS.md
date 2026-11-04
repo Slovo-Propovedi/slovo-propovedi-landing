@@ -206,13 +206,16 @@ docker run --rm -p 8080:8080 slovo-propovedi-landing
 - The mobile repositories are public: both refresh scripts read releases and
   the git tree anonymously, so no API tokens are provisioned (a leftover
   `/slovo/landing/tokens` from older deploys is unused).
-- Repository coordinates: the primary Forgejo URL/org are provided by the
+- Repository coordinates: the primary Forgejo URL/owner are provided by the
   runner (`GITHUB_SERVER_URL` / `github.repository_owner` — no org variable
-  needed); `MIRROR_CODEBERG_URL`/`MIRROR_CODEBERG_ORG`, `MIRROR_GITHUB_ORG`
-  (GitHub hosts are fixed) and `MOBILE_REPOSITORY_NAME` remain Forgejo org
-  variables shared with the mobile repo. Hosts are bare https origins, names
-  plain slugs — validated identically by release.yml, the Dockerfile, the
-  refresh scripts and the dev server. They reach the scripts via
+  needed); `MIRROR_CODEBERG_URL`, `MIRROR_GITHUB_URL` (GitHub hosts are fixed,
+  only its owner slug varies) and `MOBILE_REPOSITORY_NAME` remain Forgejo org
+  variables shared with the mobile repo. The primary is a bare https origin
+  plus a plain slug owner; each mirror travels as ONE https URL whose only
+  path segment is the owner — validated identically by release.yml, the
+  Dockerfile, the refresh scripts and the dev server; the CSP build derives
+  the bare origin from the mirror URL because Forgejo's API lives outside the
+  owner path. They reach the scripts via
   `/etc/default/slovo-landing` (written from runner-derived values on every
   deploy; the `REPOSITORY_URL`/`REPOSITORY_OWNER` *names* are kept for the env
   file and vps-deploy.sh) and the static site via build-time placeholders
@@ -324,7 +327,7 @@ Conventional commits (enforced by `.husky/commit-msg`):
    temp workspace so tools honouring the env var are not confused.
 7. **`__WEB_HOSTNAME__`/`__LANDING_HOSTNAME__` and the repository placeholders
    (`__REPOSITORY_URL__`, `__REPOSITORY_OWNER__`, `__MIRROR_CODEBERG_URL__`,
-   `__MIRROR_CODEBERG_ORG__`, `__MIRROR_GITHUB_ORG__`, `__MOBILE_REPOSITORY_NAME__`)
+   `__MIRROR_GITHUB_URL__`, `__MOBILE_REPOSITORY_NAME__`)
    are replaced at image build** — never commit a real hostname or org there; keep `/web` links
    relative. Both are hostname-only by contract (no protocol, path, trailing
    slash or port), and the bare-hostname charset makes the metacharacters that

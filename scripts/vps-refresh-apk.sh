@@ -32,7 +32,7 @@ load_env_file() {
   [ -r "$1" ] || return 0
   while IFS='=' read -r key value || [ -n "$key" ]; do
     case "$key" in
-      REPOSITORY_URL|REPOSITORY_OWNER|MIRROR_CODEBERG_URL|MIRROR_CODEBERG_ORG|MIRROR_GITHUB_ORG|MOBILE_REPOSITORY_NAME|APK_SIGNER_SHA256) ;;
+      REPOSITORY_URL|REPOSITORY_OWNER|MIRROR_CODEBERG_URL|MIRROR_GITHUB_URL|MOBILE_REPOSITORY_NAME|APK_SIGNER_SHA256) ;;
       *) continue ;;
     esac
     [ -n "${!key:-}" ] && continue
@@ -53,8 +53,7 @@ MISSING_ENV=0
 require_env REPOSITORY_URL
 require_env REPOSITORY_OWNER
 require_env MIRROR_CODEBERG_URL
-require_env MIRROR_CODEBERG_ORG
-require_env MIRROR_GITHUB_ORG
+require_env MIRROR_GITHUB_URL
 require_env MOBILE_REPOSITORY_NAME
 require_env APK_SIGNER_SHA256
 if [ "$MISSING_ENV" -ne 0 ]; then
@@ -64,16 +63,23 @@ fi
 
 # Repository coordinates (read from the env file / environment, written by the
 # release deploy from runner-derived and org-variable values — same contract
-# as the image build): the hosts are bare https origins, the org/repo names
-# plain slugs. They are built into API URLs and handed to curl, so anything
-# else is a misconfiguration.
-for var in REPOSITORY_URL MIRROR_CODEBERG_URL; do
+# as the image build): the primary is a bare https origin plus a plain slug
+# owner; each mirror travels as ONE https URL whose only path segment is the
+# owner. They are built into API URLs and handed to curl, so anything else is
+# a misconfiguration.
+for var in REPOSITORY_URL; do
   if ! printf '%s' "${!var}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
     echo "ERROR: $var must be a bare https origin, no path (got '${!var}')" >&2
     exit 1
   fi
 done
-for var in REPOSITORY_OWNER MIRROR_CODEBERG_ORG MIRROR_GITHUB_ORG MOBILE_REPOSITORY_NAME; do
+for var in MIRROR_CODEBERG_URL MIRROR_GITHUB_URL; do
+  if ! printf '%s' "${!var}" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+    echo "ERROR: $var must be an https URL with the owner as its only path segment, e.g. https://codeberg.org/Slovo_Propovedi (got '${!var}')" >&2
+    exit 1
+  fi
+done
+for var in REPOSITORY_OWNER MOBILE_REPOSITORY_NAME; do
   if ! printf '%s' "${!var}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
     echo "ERROR: $var must be a plain org/repo slug (got '${!var}')" >&2
     exit 1
@@ -105,9 +111,15 @@ MAX_ZIP_ENTRIES="${MAX_ZIP_ENTRIES:-20}"
 
 # Release API endpoints. Codeberg runs Forgejo: same API shape as the primary
 # repository; GitHub's API host is fixed.
+# Owner-bearing mirror URLs: the bare origin (Forgejo's API base — its API
+# lives OUTSIDE the owner path) and the owner are both derived from the single
+# URL, so a host or owner rename is a variable change, not a script change.
+CODEBERG_ORIGIN="${MIRROR_CODEBERG_URL%/*}"
+CODEBERG_ORG="${MIRROR_CODEBERG_URL##*/}"
+GITHUB_ORG="${MIRROR_GITHUB_URL##*/}"
 REPOSITORY_API="$REPOSITORY_URL/api/v1/repos/$REPOSITORY_OWNER/$MOBILE_REPOSITORY_NAME/releases/latest"
-CODEBERG_API="$MIRROR_CODEBERG_URL/api/v1/repos/$MIRROR_CODEBERG_ORG/$MOBILE_REPOSITORY_NAME/releases/latest"
-GITHUB_API="https://api.github.com/repos/$MIRROR_GITHUB_ORG/$MOBILE_REPOSITORY_NAME/releases/latest"
+CODEBERG_API="$CODEBERG_ORIGIN/api/v1/repos/$CODEBERG_ORG/$MOBILE_REPOSITORY_NAME/releases/latest"
+GITHUB_API="https://api.github.com/repos/$GITHUB_ORG/$MOBILE_REPOSITORY_NAME/releases/latest"
 
 # https only, including every redirect, and an explicit User-Agent: GitHub's
 # API requires one, and Codeberg rejects some browser-like agents that a
