@@ -116,21 +116,34 @@ try {
   }
 }
 
-// Categorize by conventional commit type
+// Categorize by conventional commit type. Changes, fixes and refactors get
+// their own groups; maintenance work (docs, ci, build, chore, style, test,
+// revert) gets a dedicated Maintenance group instead of being dropped — the
+// same grouping semantics as the backend repo's bump-version. The version
+// bump's own commit never shows up in the section.
 const typeMap = {
   feat: 'Added',
   fix: 'Fixed',
   refactor: 'Changed',
   perf: 'Changed',
+  docs: 'Maintenance',
+  ci: 'Maintenance',
+  build: 'Maintenance',
+  chore: 'Maintenance',
+  style: 'Maintenance',
+  test: 'Maintenance',
+  revert: 'Maintenance',
 }
-const categories = { Added: [], Changed: [], Fixed: [] }
+const categories = { Added: [], Changed: [], Fixed: [], Maintenance: [] }
+const BUMP_DESCRIPTION_PATTERN = /^bump version to /
 
 for (const msg of commitMessages) {
   const match = msg.match(/^(\w+)(?:\(.+\))?:\s*(.+)/)
   if (!match) continue
   const [, type, description] = match
+  if (BUMP_DESCRIPTION_PATTERN.test(description)) continue // the bump commit itself
   const category = typeMap[type]
-  if (!category) continue // skip: chore, ci, docs, style, test, build
+  if (!category) continue // unknown conventional type
   const desc = description.charAt(0).toUpperCase() + description.slice(1)
   categories[category].push(desc)
 }
