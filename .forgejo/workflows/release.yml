@@ -37,7 +37,7 @@ jobs:
 
           # Runner capacity is 2, so this job holding a runner slot while
           # polling no longer starves the CI workflow of a runner to run on.
-          for i in $(seq 1 40); do
+          for i in $(seq 1 60); do
             # Forgejo appends the triggering event to the context, e.g.
             # "CI / validate (push)", so match by prefix rather than equality.
             STATE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$URL" | jq -r '.statuses[] | select(.context | startswith("CI / validate")) | .status' | head -1)
@@ -47,7 +47,7 @@ jobs:
               failure|error) echo "::error::CI did not pass for ${{ github.sha }} (status: $STATE). Refusing to deploy."; exit 1 ;;
             esac
 
-            echo "Waiting for CI status on ${{ github.sha }} (attempt $i/40)..."
+            echo "Waiting for CI status on ${{ github.sha }} (attempt $i/60)..."
             sleep 15
           done
 
