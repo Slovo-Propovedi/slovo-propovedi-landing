@@ -1,0 +1,32 @@
+# Composite action: repository checks (install + landing validation). One
+# implementation shared by the GitHub-hosted CI workflow and the Forgejo
+# fallback path.
+#
+# The caller owns `actions/checkout` and all `timeout-minutes` values (composite
+# action steps do not support them).
+
+name: Repository checks
+description: Install dependencies and validate the landing page.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24
+
+    - name: Install dependencies
+      shell: bash
+      env:
+        HUSKY: 0
+      run: npm ci
+
+    - name: Validate landing page
+      shell: bash
+      run: npm run validate
+
+    - name: Cleanup workspace
+      if: always()
+      shell: bash
+      run: rm -rf node_modules 2>/dev/null || true
